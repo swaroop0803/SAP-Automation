@@ -1,24 +1,154 @@
 import express from 'express';
 import cors from 'cors';
-import { exec } from 'child_process';
-import { promisify } from 'util';
+import { exec, ChildProcess } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import Groq from 'groq-sdk';
+import dotenv from 'dotenv';
+import multer from 'multer';
+import * as XLSX from 'xlsx';
 
-const execAsync = promisify(exec);
+// Load environment variables
+dotenv.config();
+
+// Track running test process for cancellation
+let currentTestProcess: ChildProcess | null = null;
+let isTestCancelled = false;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Initialize Groq AI client
+const groq = process.env.GROQ_API_KEY
+  ? new Groq({ apiKey: process.env.GROQ_API_KEY })
+  : null;
+
+const USE_AI_PARSING = process.env.USE_AI_PARSING === 'true' && groq !== null;
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// Configure multer for file uploads
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = [
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // xlsx
+      'application/vnd.ms-excel', // xls
+      'text/csv',
+      'application/json'
+    ];
+    if (allowedTypes.includes(file.mimetype) ||
+        file.originalname.endsWith('.csv') ||
+        file.originalname.endsWith('.json') ||
+        file.originalname.endsWith('.xlsx') ||
+        file.originalname.endsWith('.xls')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Invalid file type. Only Excel, CSV, and JSON files are allowed.'));
+    }
+  }
+});
+
+// Bulk upload tracking
+interface BulkJobStatus {
+  id: string;
+  status: 'running' | 'completed' | 'failed' | 'cancelled';
+  totalItems: number;
+  completedItems: number;
+  results: Array<{
+    index: number;
+    material: string;
+    quantity: string;
+    price: string;
+    status: 'success' | 'failed' | 'pending' | 'cancelled';
+    poNumber?: string;
+    error?: string;
+  }>;
+  startTime: Date;
+  endTime?: Date;
+}
+
+const bulkJobs: Map<string, BulkJobStatus> = new Map();
+let currentBulkJobId: string | null = null;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AI-POWERED COMMAND PARSING WITH CLAUDE
+// ═══════════════════════════════════════════════════════════════════════════
+
+interface AIParseResult {
+  action: 'purchase_order' | 'goods_receipt' | 'supplier_invoice' | 'payment' | 'procure_to_pay' | 'unknown';
+  poNumber?: string;
+  invoiceNumber?: string;
+  confidence: number;
+  reasoning: string;
+}
+
+async function parseCommandWithAI(command: string): Promise<AIParseResult> {
+  if (!groq) {
+    throw new Error('AI client not initialized');
+  }
+
+  const systemPrompt = `You are an SAP automation assistant that parses natural language commands into structured actions.
+
+Available actions:
+1. purchase_order - Create a new Purchase Order (no input required)
+2. goods_receipt - Post Goods Receipt for a PO (requires PO number starting with 45, 10 digits)
+3. supplier_invoice - Create Supplier Invoice for a PO (requires PO number starting with 45, 10 digits)
+4. payment - Process Payment for an invoice (requires Invoice number starting with 51, 10 digits)
+5. procure_to_pay - Run complete end-to-end flow (no input required)
+
+Respond in JSON format only:
+{
+  "action": "action_name",
+  "poNumber": "1234567890" or null,
+  "invoiceNumber": "1234567890" or null,
+  "confidence": 0.0-1.0,
+  "reasoning": "brief explanation"
+}`;
+
+  const response = await groq.chat.completions.create({
+    model: 'llama-3.3-70b-versatile',
+    max_tokens: 256,
+    messages: [
+      {
+        role: 'system',
+        content: systemPrompt
+      },
+      {
+        role: 'user',
+        content: `Parse this command: "${command}"`
+      }
+    ],
+    temperature: 0.1
+  });
+
+  // Extract text content from response
+  const content = response.choices[0]?.message?.content;
+  if (!content) {
+    throw new Error('No text response from AI');
+  }
+
+  // Parse JSON response
+  const jsonMatch = content.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    throw new Error('Could not parse AI response');
+  }
+
+  const result = JSON.parse(jsonMatch[0]) as AIParseResult;
+  return result;
+}
 
 interface ParsedCommand {
   action: string;
   testFile: string;
   envVars: Record<string, string>;
   description: string;
+  aiParsed?: boolean;
+  aiConfidence?: number;
+  aiReasoning?: string;
 }
 
 // Helper function to check if command matches any pattern
@@ -76,8 +206,93 @@ function fuzzyMatch(command: string, target: string): boolean {
   return false;
 }
 
-// Natural language command parser
-function parseCommand(command: string): ParsedCommand {
+// AI-enhanced command parser (uses AI if available, falls back to pattern matching)
+async function parseCommandWithAIFallback(command: string): Promise<ParsedCommand> {
+  if (USE_AI_PARSING) {
+    try {
+      console.log('🤖 Using AI to parse command...');
+      const aiResult = await parseCommandWithAI(command);
+      console.log('🤖 AI Result:', aiResult);
+
+      if (aiResult.confidence >= 0.7 && aiResult.action !== 'unknown') {
+        // Map AI result to ParsedCommand
+        const actionMap: Record<string, { testFile: string; description: string }> = {
+          purchase_order: {
+            testFile: 'tests/flows/PurchaseOrderFlow.spec.ts',
+            description: 'Creating Purchase Order (AI-parsed)'
+          },
+          goods_receipt: {
+            testFile: 'tests/flows/GoodsReceiptFlow.spec.ts',
+            description: `Posting Goods Receipt for PO ${aiResult.poNumber} (AI-parsed)`
+          },
+          supplier_invoice: {
+            testFile: 'tests/flows/SupplierInvoiceFlow.spec.ts',
+            description: `Creating Supplier Invoice for PO ${aiResult.poNumber} (AI-parsed)`
+          },
+          payment: {
+            testFile: 'tests/flows/PaymentFlow.spec.ts',
+            description: `Processing Payment for Invoice ${aiResult.invoiceNumber} (AI-parsed)`
+          },
+          procure_to_pay: {
+            testFile: 'tests/procureToPay.spec.ts',
+            description: 'Running complete Procure-to-Pay flow (AI-parsed)'
+          }
+        };
+
+        const mapped = actionMap[aiResult.action];
+        if (mapped) {
+          const envVars: Record<string, string> = {};
+          if (aiResult.poNumber) envVars.PO_NUMBER = aiResult.poNumber;
+          if (aiResult.invoiceNumber) envVars.INVOICE_NUMBER = aiResult.invoiceNumber;
+
+          // Validate required inputs
+          if ((aiResult.action === 'goods_receipt' || aiResult.action === 'supplier_invoice') && !aiResult.poNumber) {
+            return {
+              action: `${aiResult.action}_missing_po`,
+              testFile: '',
+              envVars: {},
+              description: `ERROR: PO Number is required. Example: "Create goods for PO 4500001075"`,
+              aiParsed: true,
+              aiConfidence: aiResult.confidence,
+              aiReasoning: aiResult.reasoning
+            };
+          }
+
+          if (aiResult.action === 'payment' && !aiResult.invoiceNumber) {
+            return {
+              action: 'payment_missing_invoice',
+              testFile: '',
+              envVars: {},
+              description: `ERROR: Invoice Number is required. Example: "Process payment for invoice 5105600001"`,
+              aiParsed: true,
+              aiConfidence: aiResult.confidence,
+              aiReasoning: aiResult.reasoning
+            };
+          }
+
+          return {
+            action: aiResult.action,
+            testFile: mapped.testFile,
+            envVars,
+            description: mapped.description,
+            aiParsed: true,
+            aiConfidence: aiResult.confidence,
+            aiReasoning: aiResult.reasoning
+          };
+        }
+      }
+      console.log('🤖 AI confidence too low or unknown action, falling back to pattern matching');
+    } catch (error) {
+      console.error('🤖 AI parsing failed, falling back to pattern matching:', error);
+    }
+  }
+
+  // Fallback to pattern matching
+  return parseCommandPatternBased(command);
+}
+
+// Pattern-based command parser (fallback)
+function parseCommandPatternBased(command: string): ParsedCommand {
   const originalCommand = command;
   const lowerCommand = normalizeCommand(command);
   const hasNumber = /\d{10}/.test(command);
@@ -176,6 +391,10 @@ function parseCommand(command: string): ParsedCommand {
     'generate invoice', 'generate an invoice', 'generate supplier invoice',
     'post invoice', 'post an invoice', 'post supplier invoice',
     'new invoice', 'make invoice', 'make an invoice',
+    // "Supplier receipt" = Supplier Invoice (common confusion)
+    'supplier receipt', 'supplier reciept', 'supplier recept',
+    'create supplier receipt', 'create a supplier receipt',
+    'supplier receipt for', 'supplier receipt using', 'supplier receipt with',
     // With PO reference
     'invoice for po', 'invoice for purchase order', 'invoice for this po',
     'invoice with po', 'invoice with this po', 'invoice with purchase order',
@@ -211,6 +430,15 @@ function parseCommand(command: string): ParsedCommand {
         testFile: '',
         envVars: {},
         description: 'ERROR: PO Number is required. Example: "Create invoice for PO 4500001075"'
+      };
+    }
+    // Check if user accidentally provided an invoice number instead of PO number
+    if (poNumber.startsWith('5105') || poNumber.startsWith('5100')) {
+      return {
+        action: 'invoice_wrong_number',
+        testFile: '',
+        envVars: {},
+        description: `ERROR: You provided an Invoice Number (${poNumber}). To create a supplier invoice, you need a PO Number (starts with 4500). Example: "Create invoice for PO 4500001075"`
       };
     }
     return {
@@ -404,7 +632,7 @@ async function executeTest(command: string) {
   const steps: any[] = [];
 
   try {
-    const parsed = parseCommand(command);
+    const parsed = await parseCommandWithAIFallback(command);
 
     // Check for errors in parsing
     if (parsed.action === 'unknown' || parsed.action.includes('missing')) {
@@ -423,9 +651,13 @@ async function executeTest(command: string) {
     }
 
     // Add initial steps
+    const aiInfo = parsed.aiParsed
+      ? ` (AI: ${Math.round((parsed.aiConfidence || 0) * 100)}% confidence)`
+      : ' (Pattern matching)';
+
     steps.push({
       id: 'step-1',
-      description: `Parsing command: "${command}"`,
+      description: `Parsing command: "${command}"${aiInfo}`,
       status: 'completed',
       timestamp: new Date()
     });
@@ -445,11 +677,26 @@ async function executeTest(command: string) {
     console.log('In directory:', projectRoot);
     console.log('Environment variables:', parsed.envVars);
 
-    const { stdout, stderr } = await execAsync(testCommand, {
-      cwd: projectRoot,
-      timeout: 600000, // 10 minutes max for full flow
-      shell: 'cmd.exe',
-      env: { ...process.env, ...parsed.envVars }
+    // Reset cancellation flag
+    isTestCancelled = false;
+
+    // Use exec with callback to get process reference for cancellation
+    const { stdout, stderr } = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
+      currentTestProcess = exec(testCommand, {
+        cwd: projectRoot,
+        timeout: 600000, // 10 minutes max for full flow
+        shell: 'cmd.exe',
+        env: { ...process.env, ...parsed.envVars }
+      }, (error, stdout, stderr) => {
+        currentTestProcess = null;
+        if (isTestCancelled) {
+          reject(new Error('Test cancelled by user'));
+        } else if (error) {
+          reject({ ...error, stdout, stderr });
+        } else {
+          resolve({ stdout, stderr });
+        }
+      });
     });
 
     steps[1].status = 'completed';
@@ -461,7 +708,7 @@ async function executeTest(command: string) {
       timestamp: new Date()
     });
 
-    // Parse test output to extract PO number and Invoice number
+    // Parse test output to extract PO number, Invoice number, and Material Document number
     const poMatch = stdout.match(/PO Number[:\s]+(\d+)/i) ||
                     stdout.match(/Purchase Order Created[:\s]+(\d+)/i) ||
                     stdout.match(/(4500\d{6})/);
@@ -470,12 +717,18 @@ async function executeTest(command: string) {
                          stdout.match(/Invoice Created[:\s]+(\d+)/i) ||
                          stdout.match(/(5105\d{6})/);
 
+    const materialDocMatch = stdout.match(/Material Document Number[:\s]+(\d+)/i) ||
+                              stdout.match(/Material document (\d+) posted/i) ||
+                              stdout.match(/(5000\d{6})/);
+
     const poNumber = poMatch ? poMatch[1] : null;
     const invoiceNumber = invoiceMatch ? invoiceMatch[1] : null;
+    const materialDocNumber = materialDocMatch ? materialDocMatch[1] : null;
 
     let resultMessage = 'Test completed successfully!';
     if (poNumber) resultMessage += ` PO: ${poNumber}`;
     if (invoiceNumber) resultMessage += ` Invoice: ${invoiceNumber}`;
+    if (materialDocNumber) resultMessage += ` Material Doc: ${materialDocNumber}`;
 
     steps.push({
       id: 'step-4',
@@ -493,7 +746,13 @@ async function executeTest(command: string) {
       steps,
       poNumber,
       invoiceNumber,
-      output: stdout
+      materialDocNumber,
+      output: stdout,
+      ai: parsed.aiParsed ? {
+        used: true,
+        confidence: parsed.aiConfidence,
+        reasoning: parsed.aiReasoning
+      } : { used: false }
     };
 
   } catch (error: any) {
@@ -541,6 +800,36 @@ app.post('/api/execute', async (req, res) => {
       message: 'Server error',
       errors: [error.message]
     });
+  }
+});
+
+// API endpoint to cancel running test
+app.post('/api/cancel', (req, res) => {
+  console.log('Cancel request received');
+
+  if (currentTestProcess) {
+    try {
+      isTestCancelled = true;
+
+      // Kill the process tree on Windows
+      if (process.platform === 'win32') {
+        exec(`taskkill /pid ${currentTestProcess.pid} /T /F`, (error) => {
+          if (error) {
+            console.error('Error killing process:', error);
+          }
+        });
+      } else {
+        currentTestProcess.kill('SIGTERM');
+      }
+
+      console.log('Test process cancelled');
+      res.json({ success: true, message: 'Test cancelled successfully' });
+    } catch (error: any) {
+      console.error('Error cancelling test:', error);
+      res.status(500).json({ success: false, message: 'Failed to cancel test', error: error.message });
+    }
+  } else {
+    res.json({ success: false, message: 'No test is currently running' });
   }
 });
 
@@ -714,11 +1003,326 @@ app.get('/api/po-list', (req, res) => {
   });
 });
 
+// ═══════════════════════════════════════════════════════════════════════════
+// BULK UPLOAD API - For creating multiple Purchase Orders
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Parse uploaded file (Excel, CSV, or JSON)
+// Fields: Document Date, Purchase Org, Purchase Group, Company Code, Account Assignment,
+//         Material, PO Quantity, Unit, Net Price, Plant, GL Account, Cost Center
+function parseBulkFile(buffer: Buffer, filename: string): Array<{
+  documentDate?: string;
+  purchaseOrg?: string;
+  purchaseGroup?: string;
+  companyCode?: string;
+  accountAssignment?: string;
+  material: string;
+  quantity: string;
+  unit?: string;
+  price: string;
+  plant?: string;
+  glAccount?: string;
+  costCenter?: string;
+}> {
+  const ext = filename.toLowerCase().split('.').pop();
+
+  if (ext === 'json') {
+    const jsonData = JSON.parse(buffer.toString());
+    // Support both array format and {data: [...]} format
+    const items = Array.isArray(jsonData) ? jsonData : jsonData.data || jsonData.items || [];
+    return items.map((item: any) => ({
+      documentDate: item.documentDate || item['Document date'] || item.document_date || '',
+      purchaseOrg: item.purchaseOrg || item.PurchaseOrg || item['Purchase Org'] || 'ACS',
+      purchaseGroup: item.purchaseGroup || item.PurchaseGroup || item['Purchase Group'] || 'ACS',
+      companyCode: item.companyCode || item.CompanyCode || item['Company code'] || 'ACS',
+      accountAssignment: item.accountAssignment || item.AccountAssignment || item['Account Assignment'] || 'K',
+      material: String(item.material || item.Material || 'P-A2026-3'),
+      quantity: String(item.quantity || item.Quantity || item['PO Quantity'] || '1'),
+      unit: item.unit || item.Unit || item['unit of measure'] || 'EA',
+      price: String(item.price || item.Price || item['Net price'] || '1000'),
+      plant: item.plant || item.Plant || 'ACS',
+      glAccount: item.glAccount || item.GLAccount || item['GL Account'] || '610010',
+      costCenter: item.costCenter || item.CostCenter || item['Cost center'] || 'ACSC110'
+    }));
+  }
+
+  if (ext === 'csv') {
+    const csvData = buffer.toString();
+    const lines = csvData.split('\n').filter(line => line.trim());
+    const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/\s+/g, ''));
+
+    return lines.slice(1).map(line => {
+      const values = line.split(',').map(v => v.trim());
+      const item: any = {};
+
+      headers.forEach((header, index) => {
+        item[header] = values[index] || '';
+      });
+
+      return {
+        documentDate: item.documentdate || item.date || '',
+        purchaseOrg: item.purchaseorg || item.purchorg || 'ACS',
+        purchaseGroup: item.purchasegroup || item.purchgroup || 'ACS',
+        companyCode: item.companycode || item.company || 'ACS',
+        accountAssignment: item.accountassignment || item.acctassign || 'K',
+        material: item.material || item.mat || 'P-A2026-3',
+        quantity: item.quantity || item.poquantity || item.qty || '1',
+        unit: item.unit || item.unitofmeasure || item.uom || 'EA',
+        price: item.price || item.netprice || '1000',
+        plant: item.plant || 'ACS',
+        glAccount: item.glaccount || item.gl || '610010',
+        costCenter: item.costcenter || item.cc || 'ACSC110'
+      };
+    });
+  }
+
+  if (ext === 'xlsx' || ext === 'xls') {
+    const workbook = XLSX.read(buffer, { type: 'buffer' });
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+    const jsonData = XLSX.utils.sheet_to_json(sheet);
+
+    return jsonData.map((item: any) => ({
+      documentDate: String(item['Document date'] || item.DocumentDate || item.documentDate || ''),
+      purchaseOrg: String(item['Purchase Org'] || item.PurchaseOrg || item.purchaseOrg || 'ACS'),
+      purchaseGroup: String(item['Purchase Group'] || item.PurchaseGroup || item.purchaseGroup || 'ACS'),
+      companyCode: String(item['Company code'] || item.CompanyCode || item.companyCode || 'ACS'),
+      accountAssignment: String(item['Account Assignment'] || item.AccountAssignment || item.accountAssignment || 'K'),
+      material: String(item.Material || item.material || 'P-A2026-3'),
+      quantity: String(item['PO Quantity'] || item.Quantity || item.quantity || '1'),
+      unit: String(item['unit of measure'] || item.Unit || item.unit || 'EA'),
+      price: String(item['Net price'] || item.Price || item.price || '1000'),
+      plant: String(item.Plant || item.plant || 'ACS'),
+      glAccount: String(item['GL Account'] || item.GLAccount || item.glAccount || '610010'),
+      costCenter: String(item['Cost center'] || item.CostCenter || item.costCenter || 'ACSC110')
+    }));
+  }
+
+  throw new Error(`Unsupported file format: ${ext}`);
+}
+
+// Bulk upload endpoint - Saves CSV file and runs single test that reads it
+app.post('/api/bulk-upload', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    console.log('Bulk upload received:', req.file.originalname);
+
+    // Parse the file to validate and get item count
+    const items = parseBulkFile(req.file.buffer, req.file.originalname);
+
+    if (items.length === 0) {
+      return res.status(400).json({ error: 'No valid items found in file' });
+    }
+
+    console.log(`Parsed ${items.length} items from file`);
+
+    // Save uploaded file to uploads directory
+    const projectRoot = path.resolve(__dirname, '../..');
+    const uploadsDir = path.join(projectRoot, 'uploads');
+
+    // Create uploads directory if it doesn't exist
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+
+    // Save file with timestamp
+    const timestamp = Date.now();
+    const ext = req.file.originalname.split('.').pop();
+    const savedFileName = `bulk_po_${timestamp}.${ext}`;
+    const savedFilePath = path.join(uploadsDir, savedFileName);
+
+    fs.writeFileSync(savedFilePath, req.file.buffer);
+    console.log(`File saved to: ${savedFilePath}`);
+
+    // Create job
+    const jobId = `bulk-${timestamp}`;
+    const job: BulkJobStatus = {
+      id: jobId,
+      status: 'running',
+      totalItems: items.length,
+      completedItems: 0,
+      results: items.map((item, index) => ({
+        index,
+        material: item.material,
+        quantity: item.quantity,
+        price: item.price,
+        status: 'pending' as const
+      })),
+      startTime: new Date()
+    };
+
+    bulkJobs.set(jobId, job);
+    currentBulkJobId = jobId;
+    isTestCancelled = false;
+
+    // Return job ID immediately
+    res.json({
+      success: true,
+      jobId,
+      message: `Bulk upload started with ${items.length} items`,
+      totalItems: items.length
+    });
+
+    // Execute single test that reads CSV and creates all POs
+    (async () => {
+      const testCommand = `npx playwright test tests/flows/BulkPOFlow.spec.ts`;
+
+      console.log('Running bulk PO test with CSV:', savedFilePath);
+
+      currentTestProcess = exec(testCommand, {
+        cwd: projectRoot,
+        timeout: 600000, // 10 minutes max for all POs
+        shell: 'cmd.exe',
+        env: {
+          ...process.env,
+          BULK_CSV_PATH: savedFilePath,
+          BULK_JOB_ID: jobId
+        }
+      }, (error, stdout, stderr) => {
+        currentTestProcess = null;
+
+        // Log full output for debugging
+        if (stdout) console.log('STDOUT:', stdout);
+        if (stderr) console.log('STDERR:', stderr);
+
+        if (isTestCancelled) {
+          job.status = 'cancelled';
+          job.results.forEach(r => {
+            if (r.status === 'pending') r.status = 'cancelled';
+          });
+        } else if (error) {
+          console.error('Bulk PO test failed:', error.message);
+          // Parse output to see which POs succeeded
+          const poMatches = stdout.matchAll(/PO Created: (\d+) for row (\d+)/g);
+          for (const match of poMatches) {
+            const poNumber = match[1];
+            const rowIndex = parseInt(match[2]) - 1;
+            if (job.results[rowIndex]) {
+              job.results[rowIndex].status = 'success';
+              job.results[rowIndex].poNumber = poNumber;
+              job.completedItems++;
+            }
+          }
+          // Parse skipped entries
+          const skipMatches = stdout.matchAll(/SKIPPED: Row (\d+) has document date with year 2025/g);
+          for (const match of skipMatches) {
+            const rowIndex = parseInt(match[1]) - 1;
+            if (job.results[rowIndex]) {
+              job.results[rowIndex].status = 'failed';
+              job.results[rowIndex].error = 'Skipped - Date year is 2025';
+              job.completedItems++;
+            }
+          }
+          // Mark remaining as failed
+          job.results.forEach(r => {
+            if (r.status === 'pending') r.status = 'failed';
+          });
+          job.status = 'completed';
+        } else {
+          // Success - parse all PO numbers from output
+          const poMatches = stdout.matchAll(/PO Created: (\d+) for row (\d+)/g);
+          for (const match of poMatches) {
+            const poNumber = match[1];
+            const rowIndex = parseInt(match[2]) - 1;
+            if (job.results[rowIndex]) {
+              job.results[rowIndex].status = 'success';
+              job.results[rowIndex].poNumber = poNumber;
+              job.completedItems++;
+            }
+          }
+          // Parse skipped entries
+          const skipMatches = stdout.matchAll(/SKIPPED: Row (\d+) has document date with year 2025/g);
+          for (const match of skipMatches) {
+            const rowIndex = parseInt(match[1]) - 1;
+            if (job.results[rowIndex]) {
+              job.results[rowIndex].status = 'failed';
+              job.results[rowIndex].error = 'Skipped - Date year is 2025';
+              job.completedItems++;
+            }
+          }
+          job.status = 'completed';
+        }
+
+        job.endTime = new Date();
+        currentBulkJobId = null;
+        console.log(`Bulk job ${jobId} completed. Success: ${job.results.filter(r => r.status === 'success').length}/${job.totalItems}`);
+      });
+    })();
+
+  } catch (error: any) {
+    console.error('Bulk upload error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get bulk job status
+app.get('/api/bulk-status/:jobId', (req, res) => {
+  const job = bulkJobs.get(req.params.jobId);
+
+  if (!job) {
+    return res.status(404).json({ error: 'Job not found' });
+  }
+
+  const successCount = job.results.filter(r => r.status === 'success').length;
+  const failedCount = job.results.filter(r => r.status === 'failed').length;
+
+  res.json({
+    ...job,
+    successCount,
+    failedCount,
+    progress: Math.round((job.completedItems / job.totalItems) * 100)
+  });
+});
+
+// Cancel bulk job
+app.post('/api/bulk-cancel', (req, res) => {
+  if (currentBulkJobId) {
+    isTestCancelled = true;
+
+    // Kill current test process if running
+    if (currentTestProcess) {
+      if (process.platform === 'win32') {
+        exec(`taskkill /pid ${currentTestProcess.pid} /T /F`);
+      } else {
+        currentTestProcess.kill('SIGTERM');
+      }
+    }
+
+    res.json({ success: true, message: 'Bulk job cancellation requested' });
+  } else {
+    res.json({ success: false, message: 'No bulk job is currently running' });
+  }
+});
+
+// Get all bulk jobs
+app.get('/api/bulk-jobs', (req, res) => {
+  const jobs = Array.from(bulkJobs.values()).map(job => ({
+    id: job.id,
+    status: job.status,
+    totalItems: job.totalItems,
+    completedItems: job.completedItems,
+    successCount: job.results.filter(r => r.status === 'success').length,
+    failedCount: job.results.filter(r => r.status === 'failed').length,
+    startTime: job.startTime,
+    endTime: job.endTime
+  }));
+
+  res.json({ jobs });
+});
+
 const PORT = 3001;
 app.listen(PORT, () => {
   console.log(`🚀 Backend server running on http://localhost:${PORT}`);
   console.log(`📝 API endpoints:`);
   console.log(`   POST /api/execute - Execute test commands`);
+  console.log(`   POST /api/cancel  - Cancel running test`);
+  console.log(`   POST /api/bulk-upload - Upload bulk PO file`);
+  console.log(`   GET  /api/bulk-status/:jobId - Get bulk job status`);
+  console.log(`   POST /api/bulk-cancel - Cancel bulk job`);
+  console.log(`   GET  /api/bulk-jobs - List all bulk jobs`);
   console.log(`   GET  /api/commands - Get available commands`);
   console.log(`   GET  /api/health - Health check`);
 });

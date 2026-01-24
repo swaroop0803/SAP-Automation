@@ -2,29 +2,45 @@ import { Page } from '@playwright/test';
 
 // ============ DATE UTILITIES ============
 
+// SAP Timezone (IST - India Standard Time)
+const SAP_TIMEZONE = 'Asia/Kolkata';
+
+// Get date in specific timezone
+function getDateInTimezone(timezone: string, daysOffset: number = 0): Date {
+    const now = new Date();
+    // Get the date string in the target timezone
+    const dateStr = now.toLocaleString('en-US', { timeZone: timezone });
+    const localDate = new Date(dateStr);
+    // Add days offset
+    localDate.setDate(localDate.getDate() + daysOffset);
+    return localDate;
+}
+
 // Get today's date in SAP format (DD.MM.YYYY)
 export function getSapToday(): string {
-    const today = new Date();
+    const today = getDateInTimezone(SAP_TIMEZONE, 0);
     const day = String(today.getDate()).padStart(2, '0');
     const month = String(today.getMonth() + 1).padStart(2, '0');
     const year = today.getFullYear();
-    return `${day}.${month}.${year}`;
+    const result = `${day}.${month}.${year}`;
+    console.log(`getSapToday() returning: ${result}`);
+    return result;
 }
 
 // Get tomorrow's date in SAP format (DD.MM.YYYY)
 export function getSapTomorrow(): string {
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrow = getDateInTimezone(SAP_TIMEZONE, 1);
     const day = String(tomorrow.getDate()).padStart(2, '0');
     const month = String(tomorrow.getMonth() + 1).padStart(2, '0');
     const year = tomorrow.getFullYear();
-    return `${day}.${month}.${year}`;
+    const result = `${day}.${month}.${year}`;
+    console.log(`getSapTomorrow() returning: ${result}`);
+    return result;
 }
 
 // Get date X days from today in SAP format (DD.MM.YYYY)
 export function getSapDateFromToday(daysFromToday: number): string {
-    const date = new Date();
-    date.setDate(date.getDate() + daysFromToday);
+    const date = getDateInTimezone(SAP_TIMEZONE, daysFromToday);
     const day = String(date.getDate()).padStart(2, '0');
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const year = date.getFullYear();

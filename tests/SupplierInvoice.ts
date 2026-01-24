@@ -36,53 +36,81 @@ export async function SupplierInvoiceCreation(page: Page, poNumber: string): Pro
     // filling the po number in the supplier to get the details
     await fillTextboxInSapFrame(crapp, "Purchasing Document", poNumber);
     await page.keyboard.press('Enter');
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(1000);
 
     // fill amount
     await fillSapTextbox(crapp, page, "Amount", "1000");
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(500);
     await page.keyboard.press('Enter');
 
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(500);
 
     // clicking on payments tab
     const paymentTab = crapp.getByRole('tab', { name: 'Payment' });
     await paymentTab.waitFor({ state: 'visible', timeout: 30000 });
     await paymentTab.click();
 
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(500);
 
     // fill baseline date
     const Today = getSapToday();
     await fillTextboxInSapFrame(crapp, "BaselineDt", Today);
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(500);
     await page.keyboard.press('Enter');
+    await page.waitForTimeout(500);
 
-    // click post button
-    await crapp.getByRole('button', { name: /Post/i }).click();
+    // click post button - wait for it to be visible first
+    console.log('Looking for Post button...');
+    const postButton = crapp.getByRole('button', { name: 'Post  Emphasized' });
+    await postButton.waitFor({ state: 'visible', timeout: 30000 });
+    console.log('Post button found, clicking...');
+    await postButton.click();
+    console.log('Post button clicked');
 
-    // click Other Invoice Document button
+    // Click Yes button after Post if dialog appears
+    try {
+        const yesButton = crapp.getByRole('button', { name: 'Yes', exact: true });
+        await yesButton.waitFor({ state: 'visible', timeout: 3000 });
+        await yesButton.click();
+        console.log('Yes button clicked after Post');
+    } catch {
+        await page.keyboard.press('Enter');
+        console.log('Enter pressed after Post (Yes button not found)');
+    }
+
+    // Match trail.spec.ts exactly - always click Other Invoice Document after Yes button
+    console.log('Clicking Other Invoice Document button...');
     await crapp.getByRole('button', { name: "Other Invoice Document" }).click();
 
     const btn = crapp
         .locator('div[role="button"]')
         .filter({ hasText: 'Other Invoice Document' })
         .first();
-
     await btn.waitFor({ state: 'visible', timeout: 30000 });
     await btn.click();
 
-    // get invoice document number
+    // Now get the invoice document number
     const invoiceDocField = crapp.getByRole('textbox', {
         name: 'Invoice Document No. Required',
     });
 
     await invoiceDocField.waitFor({ state: 'visible', timeout: 30000 });
 
-    const invoiceDocNumber = await invoiceDocField.inputValue();
+    // Wait for invoice number to be populated (retry until value exists)
+    let invoiceDocNumber = '';
+    for (let i = 0; i < 30; i++) {
+        invoiceDocNumber = await invoiceDocField.inputValue();
+        if (invoiceDocNumber && invoiceDocNumber.trim() !== '') {
+            break;
+        }
+        await page.waitForTimeout(500);
+    }
+
+    if (!invoiceDocNumber || invoiceDocNumber.trim() === '') {
+        throw new Error('Invoice Document Number was not generated');
+    }
 
     console.log('Invoice Document Number:', invoiceDocNumber);
-
     await page.keyboard.press('Enter');
     await page.waitForTimeout(1000);
 

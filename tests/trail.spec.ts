@@ -1,7 +1,7 @@
 import { test, expect, Page } from '@playwright/test';
 import { Login } from './Login';
 import { openFioriApp } from '../utils/Searching';
-import { clickSapButton, clickSapTab, fillSapTextbox, fillTextboxInSapFrame } from '../utils/sapUtils';
+import { clickSapButton, clickSapTab, fillSapTextbox, fillTextboxInSapFrame, getSapToday, getSapTomorrow } from '../utils/sapUtils';
 
 test('Purchase order', async ({ page }) => {
   await Login(page);
@@ -9,7 +9,7 @@ test('Purchase order', async ({ page }) => {
 
 
 
-
+const Today = getSapToday()
   
 // navigating to purchase order
 await openFioriApp(page,"create purchase order advanced","Create Purchase Order Advanced Tile")
@@ -34,7 +34,25 @@ await  fillTextboxInSapFrame(app,"Company Code","acs")
 
 
 await page.keyboard.press('Enter');
-await page.keyboard.press('Enter');
+
+// Click OK Emphasized button if visible
+try {
+    const okButton = app.getByRole('button', { name: 'OK  Emphasized' });
+    await okButton.waitFor({ state: 'visible', timeout: 2000 });
+    await okButton.click();
+    console.log('OK Emphasized button clicked');
+} catch {
+    // Button not visible, continue
+  await page.keyboard.press('Enter');
+}
+
+// Fill Document Date with today's date
+const docDateField = app.getByRole('textbox', { name: 'Doc. Date' });
+await docDateField.waitFor({ state: 'visible', timeout: 30000 });
+await docDateField.focus();
+await docDateField.clear();
+await docDateField.fill(Today);
+console.log('Doc. Date filled with:', Today);
 
 await page.keyboard.press('Control+F2'); // to open header part
  
@@ -48,10 +66,8 @@ await page.keyboard.press('Enter');
 await fillTextboxInSapFrame(app,"Purch. Group","acs")
 await page.keyboard.press('Enter');
 
-// const companyCode1 = app.getByRole('textbox', { name: 'Company Code', exact: true });
-// await companyCode1.focus();
-// await page.keyboard.type('acs');
-// await page.keyboard.press('Enter');
+await fillTextboxInSapFrame(app,"Company Code","acs")
+await page.keyboard.press('Enter');
 
 await page.keyboard.press('Control+F5'); // to close header part
 
@@ -84,7 +100,7 @@ const OUhcol = await app.getByRole('textbox', { name: 'OUn' }).first()
 await OUhcol.focus()
 await OUhcol.fill('EA');
 
-const Today = "23.01.2026"
+
 // Delivery Date = Today
 const DDcol = await app.getByRole('textbox', { name: 'Deliv. Date' }).first()
 await DDcol.focus()
@@ -108,27 +124,39 @@ await page.keyboard.press('Enter');
 await app.getByRole('tab', { name: 'Account Assignment', exact: true }).click();
 
 //  G/L  account in item detail
-const GLaccount = await app.getByRole('textbox', { name: 'G/L Account' }).first()
-await GLaccount.focus()
+const GLaccount = app.getByRole('textbox', { name: 'G/L Account' });
 await GLaccount.waitFor({ state: 'visible', timeout: 30000 });
-await GLaccount.fill("610010")
+await GLaccount.focus();
+await page.keyboard.press('F4');
+// await GLaccount.fill("610010")
 // await page.keyboard.press('F4');
+// await page.keyboard.press('Enter');
+// await page.keyboard.press('Enter');
+// await page.keyboard.press('Enter');
+
+const chartOfAccounts = app.getByRole('textbox', { name: 'Chart of Accounts' });
+await chartOfAccounts.waitFor({ state: 'visible', timeout: 30000 });
+await chartOfAccounts.focus();
+await chartOfAccounts.fill("acs");
 await page.keyboard.press('Enter');
 // await page.keyboard.press('Enter');
-// await page.keyboard.press('Enter');
-
-// const companycode2 = await app.getByRole('textbox', { name: 'Company Code' })
-// await companycode2.focus()
-// await companycode2.fill("acs")
-// await page.keyboard.press('Enter');
-// await page.keyboard.press('Enter');
 
 
-// const findInput = app.locator('#txtFINDEXPR1');
-// await findInput.waitFor({ state: 'visible' });
-// await findInput.fill('');
-// await page.keyboard.press('Enter');
+const findInput = app.getByRole('textbox', { name: 'Find expression' });
+await findInput.waitFor({ state: 'visible', timeout: 30000 });
+await findInput.fill('610010');
+await page.keyboard.press('Enter');
 
+// Click OK Emphasized button after G/L Account search
+try {
+    const okButtonGL = app.getByRole('button', { name: 'OK  Emphasized' });
+    await okButtonGL.waitFor({ state: 'visible', timeout: 2000 });
+    await okButtonGL.click();
+    console.log('OK Emphasized button clicked for G/L Account');
+} catch {
+    // Button not visible, continue with Enter
+    await page.keyboard.press('Enter');
+}
 
 // const costcenter = await app.getByRole('textbox', { name: 'Cost CenterCost CenterCO' }).first()
 // await costcenter.focus()
@@ -136,31 +164,68 @@ await page.keyboard.press('Enter');
 
 
 // cost center in item Detail
+const costCenter = app.getByRole('textbox', { name: 'Cost Center' });
+await costCenter.waitFor({ state: 'visible', timeout: 30000 });
+await costCenter.focus();
 await page.keyboard.press('F4');
 
 // filling company code in cost center f4 menu
 await fillTextboxInSapFrame(app,"Company Code","acs")
 
 await page.keyboard.press('Enter');
-await page.keyboard.press('Enter');
-await page.keyboard.press('Enter')
-await page.keyboard.press('Enter')
 
-// saving 
-await page.keyboard.press('Control+S');
+// Click OK Emphasized button in cost center F4 menu
+try {
+    const okButton = app.getByRole('button', { name: 'OK  Emphasized' });
+    await okButton.waitFor({ state: 'visible', timeout: 2000 });
+    await okButton.click();
+    console.log('OK Emphasized button clicked in cost center');
+} catch {
+    // Button not visible, continue with Enter
+    await page.keyboard.press('Enter');
+}
+
 await page.keyboard.press('Enter');
-await page.waitForTimeout(2000);
+await page.keyboard.press('Enter');
+await page.keyboard.press('Enter');
+
+// saving
+await page.waitForTimeout(1000);
+await page.keyboard.press('Control+S');
+console.log('Control+S pressed for save');
+
+// await page.waitForTimeout(500);
+
+// Click Save button in dialog
+const saveDialogBtn = app.getByRole('button', { name: 'Save', exact: true });
+await saveDialogBtn.waitFor({ state: 'visible', timeout: 30000 });
+await saveDialogBtn.click();
+console.log('Save dialog button clicked');
+
+await page.waitForTimeout(1000);
 
 // clicking on other Purchase Order button
-const otherpurchaseorder = await app.getByRole('button', { name: 'Other Purchase Order' })
-await otherpurchaseorder.click()
+const otherpurchaseorder = app.getByRole('button', { name: 'Other Purchase Order' });
+await otherpurchaseorder.waitFor({ state: 'visible', timeout: 30000 });
+await otherpurchaseorder.click();
 
 // getting the pur order number
 const poField = app.getByRole('textbox', { name: 'Pur. Order' });
-
 await poField.waitFor({ state: 'visible', timeout: 30000 });
 
-const poNumber = await poField.inputValue();
+// Wait for PO number to be populated (retry until value exists)
+let poNumber = '';
+for (let i = 0; i < 30; i++) {
+    poNumber = await poField.inputValue();
+    if (poNumber && poNumber.trim() !== '') {
+        break;
+    }
+    await page.waitForTimeout(500);
+}
+
+if (!poNumber || poNumber.trim() === '') {
+    throw new Error('PO Number was not generated');
+}
 
 console.log('PO Number:', poNumber);
 await page.keyboard.press('Enter');
@@ -230,18 +295,33 @@ await itemOkCheckbox.waitFor({ state: 'visible', timeout: 30000 });
 await itemOkCheckbox.check();
 
 // clicking the post buttton
-await crapp.getByRole('button', { name: /Post/i }).click()
+await crapp.getByRole('button', { name: 'Post  Emphasized' }).click()
 
 
+// Wait for the Material Document message to appear after Post
+await page.waitForTimeout(2000);
 
+// Capture Material Document Number from the current frame (Goods Receipt)
+let materialDocNumber = '';
+try {
+    // Find the element containing "Material document X posted" in the current GR frame
+    const materialDocElement = crapp.locator('text=/Material document \\d+ posted/').first();
+    await materialDocElement.waitFor({ state: 'visible', timeout: 30000 });
 
+    const elementText = await materialDocElement.textContent();
+    console.log('Found Material Document text:', elementText);
 
-
-
-
-await page.waitForTimeout(2000)
-
-
+    // Extract document number using regex
+    const match = elementText?.match(/Material document (\d+) posted/);
+    if (match && match[1]) {
+        materialDocNumber = match[1];
+        console.log('Material Document Number:', materialDocNumber);
+    } else {
+        console.log('Could not extract Material Document Number from:', elementText);
+    }
+} catch (error) {
+    console.log('Error capturing Material Document Number:', error);
+}
 
 
 
@@ -312,9 +392,21 @@ await fillTextboxInSapFrame(crapp,"BaselineDt",Today)
 await page.waitForTimeout(1000)
 await page.keyboard.press('Enter')
 
+await page.waitForTimeout(500)
 // locator('iframe[name="application-SupplierInvoice-createAdvanced-iframe"]').contentFrame().getByRole('button', { name: 'Post  Emphasized' })
-await crapp.getByRole('button', { name: /Post/i }).click()
+await crapp.getByRole('button', { name: 'Post  Emphasized' }).click()
 
+// Click Yes button after Post if dialog appears
+try {
+    const yesButtonExact = crapp.getByRole('button', { name: 'Yes', exact: true });
+    await yesButtonExact.waitFor({ state: 'visible', timeout: 3000 });
+    await yesButtonExact.click();
+    console.log('Yes (exact) button clicked after Post');
+} catch {
+    // Yes button not found, press Enter
+    await page.keyboard.press('Enter');
+    console.log('Enter pressed after Post (Yes button not found)');
+}
 
 // locator('iframe[name="application-SupplierInvoice-createAdvanced-iframe"]').contentFrame().getByRole('button', { name: 'Other Invoice Document' })
 await crapp.getByRole('button', { name: "Other Invoice Document" }).click()
@@ -348,6 +440,7 @@ const invoiceDocNumber = await invoiceDocField.inputValue();
 
 console.log('Invoice Document Number:', invoiceDocNumber);
 
+
 await page.keyboard.press('Enter')
 await page.waitForTimeout(1000)
 // await page.keyboard.press('Enter')
@@ -369,7 +462,7 @@ await openFioriApp(page,"Schedule Automatic Payments","Schedule Automatic Paymen
 // await fillTextboxInSapFrame(crapp,"Run Date Required",Today)
 await fillTextboxInSapFrame(crapp,"Run Date Required",Today)
 // locator('iframe[name="application-AutomaticPayment-schedule-iframe"]').contentFrame().getByRole('textbox', { name: 'Identification Required' })
-await fillTextboxInSapFrame(crapp,"Identification Required","AZD9")
+await fillTextboxInSapFrame(crapp,"Identification Required","CZD9")
 
 // parameter tab
 // locator('iframe[name="application-AutomaticPayment-schedule-iframe"]').contentFrame().getByRole('tablist').getByText('Parameter')
@@ -393,10 +486,11 @@ await fillSapTextbox(crapp,page,"Company Codes","Acs",0)
 await fillSapTextbox(crapp,page,"Pmt Meths","D",0)
 
 
-// Next PstDate (tommorow)
+// Next PstDate (tomorrow)
+const tomorrow = getSapTomorrow()
 // locator('iframe[name="application-AutomaticPayment-schedule-iframe"]').contentFrame().getByRole('textbox', { name: 'Next PstDate' })
 // await fillTextboxInSapFrame(crapp,"Next PstDate","23.01.2026")
-await fillSapTextbox(crapp,page,"Next PstDate","24.01.2026",0)
+await fillSapTextbox(crapp,page,"Next PstDate",tomorrow,0)
 
 // suppliers (from)
 // locator('iframe[name="application-AutomaticPayment-schedule-iframe"]').contentFrame().getByRole('textbox', { name: 'Supplier' })
@@ -432,7 +526,17 @@ const fieldName = crapp
 await fieldName.waitFor({ state: 'visible' });
 await fieldName.click();            // focus
 await page.keyboard.press('F4');    // open value help
-await page.keyboard.press('Enter'); // accept default
+
+// Click OK Emphasized or press Enter to accept default
+try {
+    const okButtonF4 = crapp.getByRole('button', { name: 'OK  Emphasized' });
+    await okButtonF4.waitFor({ state: 'visible', timeout: 2000 });
+    await okButtonF4.click();
+    console.log('OK Emphasized button clicked in F4 value help');
+} catch {
+    await page.keyboard.press('Enter');
+    console.log('Enter pressed to accept default');
+}
 
 // copied ivoice id is pasted here
 // locator('iframe[name="application-AutomaticPayment-schedule-iframe"]').contentFrame().locator('#u90444').getByRole('textbox', { name: 'Values' })
@@ -558,6 +662,21 @@ if (!(await paymentRunstartImmediatelyCheckbox.isChecked())) {
 await clickSapButton(crapp,"Schedule")
 
 await clickSapButton(crapp,"Status")
+
+// Wait for payment run to complete - keep clicking Status while "Payment run is running" is visible
+for (let i = 0; i < 30; i++) {
+    const runningText = crapp.getByText('Payment run is running');
+    try {
+        await runningText.waitFor({ state: 'visible', timeout: 2000 });
+        console.log('Payment run is still running, clicking Status again...');
+        await page.waitForTimeout(3000);
+        await clickSapButton(crapp, "Status");
+    } catch {
+        // Text not visible means payment run is complete
+        console.log('Payment run completed');
+        break;
+    }
+}
 
 const expectedMessages = [
   /Parameters have been entered/i,

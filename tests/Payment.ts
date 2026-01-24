@@ -68,7 +68,17 @@ export async function Payment(page: Page, invoiceDocNumber: string): Promise<voi
     await fieldName.waitFor({ state: 'visible' });
     await fieldName.click();
     await page.keyboard.press('F4');
-    await page.keyboard.press('Enter');
+
+    // Click OK Emphasized or press Enter to accept default
+    try {
+        const okButtonF4 = crapp.getByRole('button', { name: 'OK  Emphasized' });
+        await okButtonF4.waitFor({ state: 'visible', timeout: 2000 });
+        await okButtonF4.click();
+        console.log('OK Emphasized button clicked in F4 value help');
+    } catch {
+        await page.keyboard.press('Enter');
+        console.log('Enter pressed to accept default');
+    }
 
     // paste invoice document number here
     const valuesField = crapp
@@ -168,6 +178,21 @@ export async function Payment(page: Page, invoiceDocNumber: string): Promise<voi
     await clickSapButton(crapp, "Schedule");
 
     await clickSapButton(crapp, "Status");
+
+    // Wait for payment run to complete - keep clicking Status while "Payment run is running" is visible
+    for (let i = 0; i < 30; i++) {
+        const runningText = crapp.getByText('Payment run is running');
+        try {
+            await runningText.waitFor({ state: 'visible', timeout: 2000 });
+            console.log('Payment run is still running, clicking Status again...');
+            await page.waitForTimeout(3000);
+            await clickSapButton(crapp, "Status");
+        } catch {
+            // Text not visible means payment run is complete
+            console.log('Payment run completed');
+            break;
+        }
+    }
 
     // Verify expected messages
     const expectedMessages = [

@@ -46,7 +46,26 @@ await  fillTextboxInSapFrame(app,"Company Code","acs")
 
 
 await page.keyboard.press('Enter');
-await page.keyboard.press('Enter');
+
+// Click OK Emphasized button if visible
+try {
+    const okButton = app.getByRole('button', { name: 'OK  Emphasized' });
+    await okButton.waitFor({ state: 'visible', timeout: 2000 });
+    await okButton.click();
+    console.log('OK Emphasized button clicked');
+} catch {
+    // Button not visible, continue
+    await page.keyboard.press('Enter');
+}
+
+// Fill Document Date with today's date
+const Today = getSapToday();
+const docDateField = app.getByRole('textbox', { name: 'Doc. Date' });
+await docDateField.waitFor({ state: 'visible', timeout: 30000 });
+await docDateField.focus();
+await docDateField.clear();
+await docDateField.fill(Today);
+console.log('Doc. Date filled with:', Today);
 
 await page.keyboard.press('Control+F2'); // to open header part
  
@@ -60,10 +79,8 @@ await page.keyboard.press('Enter');
 await fillTextboxInSapFrame(app,"Purch. Group","acs")
 await page.keyboard.press('Enter');
 
-// const companyCode1 = app.getByRole('textbox', { name: 'Company Code', exact: true });
-// await companyCode1.focus();
-// await page.keyboard.type('acs');
-// await page.keyboard.press('Enter');
+await fillTextboxInSapFrame(app,"Company Code","acs")
+await page.keyboard.press('Enter');
 
 await page.keyboard.press('Control+F5'); // to close header part
 
@@ -96,11 +113,10 @@ const OUhcol = await app.getByRole('textbox', { name: 'OUn' }).first()
 await OUhcol.focus()
 await OUhcol.fill('EA');
 
-const Today = getSapToday();
-// Delivery Date = Today
-const DDcol = await app.getByRole('textbox', { name: 'Deliv. Date' }).first()
-await DDcol.focus()
-await DDcol.fill(Today);
+// Delivery Date - not needed, automatically set to today's date
+// const DDcol = await app.getByRole('textbox', { name: 'Deliv. Date' }).first()
+// await DDcol.focus()
+// await DDcol.fill(Today);
 
 
 // Net Price = 1000
@@ -120,62 +136,95 @@ await page.keyboard.press('Enter');
 await app.getByRole('tab', { name: 'Account Assignment', exact: true }).click();
 
 //  G/L  account in item detail
-const GLaccount = await app.getByRole('textbox', { name: 'G/L Account' }).first()
-await GLaccount.focus()
+const GLaccount = app.getByRole('textbox', { name: 'G/L Account' });
 await GLaccount.waitFor({ state: 'visible', timeout: 30000 });
-await GLaccount.fill("610010")
-// await page.keyboard.press('F4');
+await GLaccount.focus();
+await page.keyboard.press('F4');
+
+const chartOfAccounts = app.getByRole('textbox', { name: 'Chart of Accounts' });
+await chartOfAccounts.waitFor({ state: 'visible', timeout: 30000 });
+await chartOfAccounts.focus();
+await chartOfAccounts.fill("acs");
 await page.keyboard.press('Enter');
-// await page.keyboard.press('Enter');
-// await page.keyboard.press('Enter');
 
-// const companycode2 = await app.getByRole('textbox', { name: 'Company Code' })
-// await companycode2.focus()
-// await companycode2.fill("acs")
-// await page.keyboard.press('Enter');
-// await page.keyboard.press('Enter');
+const findInput = app.getByRole('textbox', { name: 'Find expression' });
+await findInput.waitFor({ state: 'visible', timeout: 30000 });
+await findInput.fill('610010');
+await page.keyboard.press('Enter');
 
-
-// const findInput = app.locator('#txtFINDEXPR1');
-// await findInput.waitFor({ state: 'visible' });
-// await findInput.fill('');
-// await page.keyboard.press('Enter');
-
-
-// const costcenter = await app.getByRole('textbox', { name: 'Cost CenterCost CenterCO' }).first()
-// await costcenter.focus()
-// await costcenter.waitFor({ state: 'visible', timeout: 30000 });
-
+// Click OK Emphasized button after G/L Account search
+try {
+    const okButtonGL = app.getByRole('button', { name: 'OK  Emphasized' });
+    await okButtonGL.waitFor({ state: 'visible', timeout: 2000 });
+    await okButtonGL.click();
+    console.log('OK Emphasized button clicked for G/L Account');
+} catch {
+    await page.keyboard.press('Enter');
+}
 
 // cost center in item Detail
+const costCenter = app.getByRole('textbox', { name: 'Cost Center' });
+await costCenter.waitFor({ state: 'visible', timeout: 30000 });
+await costCenter.focus();
 await page.keyboard.press('F4');
 
 // filling company code in cost center f4 menu
 await fillTextboxInSapFrame(app,"Company Code","acs")
 
 await page.keyboard.press('Enter');
+
+// Click OK Emphasized button in cost center F4 menu
+try {
+    const okButton = app.getByRole('button', { name: 'OK  Emphasized' });
+    await okButton.waitFor({ state: 'visible', timeout: 2000 });
+    await okButton.click();
+    console.log('OK Emphasized button clicked in cost center');
+} catch {
+    await page.keyboard.press('Enter');
+}
+
 await page.keyboard.press('Enter');
-await page.keyboard.press('Enter')
-await page.keyboard.press('Enter')
+await page.keyboard.press('Enter');
+await page.keyboard.press('Enter');
 
 // saving
+await page.waitForTimeout(1000);
 await page.keyboard.press('Control+S');
-await page.keyboard.press('Enter');
-await page.waitForTimeout(2000);
+console.log('Control+S pressed for save');
+
+// Click Save button in dialog
+const saveDialogBtn = app.getByRole('button', { name: 'Save', exact: true });
+await saveDialogBtn.waitFor({ state: 'visible', timeout: 30000 });
+await saveDialogBtn.click();
+console.log('Save dialog button clicked');
+
+await page.waitForTimeout(1000);
 
 // clicking on other Purchase Order button to get the PO number
 const otherpurchaseorder = app.getByRole('button', { name: 'Other Purchase Order' });
+await otherpurchaseorder.waitFor({ state: 'visible', timeout: 30000 });
 await otherpurchaseorder.click();
 
 // getting the purchase order number
 const poField = app.getByRole('textbox', { name: 'Pur. Order' });
 await poField.waitFor({ state: 'visible', timeout: 30000 });
-const poNumber = await poField.inputValue();
+
+// Wait for PO number to be populated (retry until value exists)
+let poNumber = '';
+for (let i = 0; i < 30; i++) {
+    poNumber = await poField.inputValue();
+    if (poNumber && poNumber.trim() !== '') {
+        break;
+    }
+    await page.waitForTimeout(500);
+}
+
+if (!poNumber || poNumber.trim() === '') {
+    throw new Error('PO Number was not generated');
+}
 
 console.log('PO Number:', poNumber);
 await page.keyboard.press('Enter');
-
-await page.waitForTimeout(1000);
 
 return poNumber;
 }
