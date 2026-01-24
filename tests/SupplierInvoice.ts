@@ -1,8 +1,51 @@
 import { Page } from "@playwright/test";
 import { openFioriApp } from "../utils/Searching";
 import { fillSapTextbox, fillTextboxInSapFrame, getActiveSapFrame, getSapToday } from "../utils/sapUtils";
+import * as fs from 'fs';
+import * as path from 'path';
 
-export async function SupplierInvoiceCreation(page: Page, poNumber: string): Promise<string> {
+// Helper function to get total amount (Price × Quantity) for a PO from bulk_po_results.csv
+function getPOTotalAmountFromCSV(poNumber: string): string {
+    try {
+        const resultsPath = path.join(__dirname, '../utils/bulk_po_results.csv');
+
+        if (!fs.existsSync(resultsPath)) {
+            console.log('bulk_po_results.csv not found, using default price: 1000');
+            return '1000';
+        }
+
+        const content = fs.readFileSync(resultsPath, 'utf-8');
+        const lines = content.split('\n').filter(line => line.trim());
+
+        // Skip header, search for PO number
+        // CSV format: PO_Number,Material,Quantity,Price,Timestamp
+        for (let i = 1; i < lines.length; i++) {
+            const values = lines[i].split(',').map(v => v.trim());
+            const csvPONumber = values[0]; // PO_Number is first column
+            const csvQuantity = values[2]; // Quantity is third column
+            const csvPrice = values[3];     // Price is fourth column
+
+            if (csvPONumber === poNumber) {
+                const quantity = parseFloat(csvQuantity) || 1;
+                const price = parseFloat(csvPrice) || 1000;
+                const totalAmount = Math.round(quantity * price);
+                console.log(`Found PO ${poNumber}: Quantity=${quantity}, Price=${price}, Total=${totalAmount}`);
+                return totalAmount.toString();
+            }
+        }
+
+        console.log(`PO ${poNumber} not found in CSV, using default price: 1000`);
+        return '1000';
+    } catch (error) {
+        console.error('Error reading PO data:', error);
+        return '1000';
+    }
+}
+
+export async function SupplierInvoiceCreation(page: Page, poNumber: string, amount?: string): Promise<string> {
+    // If amount not provided, calculate total from bulk_po_results.csv (Price × Quantity)
+    const invoiceAmount = amount || getPOTotalAmountFromCSV(poNumber);
+    console.log(`Using amount for PO ${poNumber}: ${invoiceAmount}`);
 
     // opening the supplier invoice
     await openFioriApp(
@@ -38,8 +81,8 @@ export async function SupplierInvoiceCreation(page: Page, poNumber: string): Pro
     await page.keyboard.press('Enter');
     await page.waitForTimeout(1000);
 
-    // fill amount
-    await fillSapTextbox(crapp, page, "Amount", "1000");
+    // fill amount (from CSV lookup or provided parameter)
+    await fillSapTextbox(crapp, page, "Amount", invoiceAmount);
     await page.waitForTimeout(500);
     await page.keyboard.press('Enter');
 

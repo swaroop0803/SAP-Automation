@@ -1,6 +1,6 @@
 import express from 'express';
 import cors from 'cors';
-import { exec, ChildProcess } from 'child_process';
+import { exec, spawn, ChildProcess } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -1128,6 +1128,20 @@ app.post('/api/bulk-upload', upload.single('file'), async (req, res) => {
       fs.mkdirSync(uploadsDir, { recursive: true });
     }
 
+    // Cleanup: Delete ALL old CSV files in uploads directory before saving new one
+    try {
+      const existingFiles = fs.readdirSync(uploadsDir);
+      for (const file of existingFiles) {
+        if (file.startsWith('bulk_po_') && (file.endsWith('.csv') || file.endsWith('.xlsx') || file.endsWith('.xls') || file.endsWith('.json'))) {
+          const filePath = path.join(uploadsDir, file);
+          fs.unlinkSync(filePath);
+          console.log(`Cleanup: Deleted old file: ${filePath}`);
+        }
+      }
+    } catch (cleanupError) {
+      console.error('Cleanup: Error deleting old files:', cleanupError);
+    }
+
     // Save file with timestamp
     const timestamp = Date.now();
     const ext = req.file.originalname.split('.').pop();
@@ -1167,88 +1181,121 @@ app.post('/api/bulk-upload', upload.single('file'), async (req, res) => {
     });
 
     // Execute single test that reads CSV and creates all POs
+    // Using spawn for real-time output streaming
     (async () => {
-      const testCommand = `npx playwright test tests/flows/BulkPOFlow.spec.ts`;
-
       console.log('Running bulk PO test with CSV:', savedFilePath);
 
-      currentTestProcess = exec(testCommand, {
+      // Use spawn for real-time output
+      const testProcess = spawn('npx', ['playwright', 'test', 'tests/flows/BulkPOFlow.spec.ts'], {
         cwd: projectRoot,
-        timeout: 600000, // 10 minutes max for all POs
-        shell: 'cmd.exe',
+        shell: true,
         env: {
           ...process.env,
           BULK_CSV_PATH: savedFilePath,
           BULK_JOB_ID: jobId
         }
-      }, (error, stdout, stderr) => {
-        currentTestProcess = null;
+      });
 
-        // Log full output for debugging
-        if (stdout) console.log('STDOUT:', stdout);
-        if (stderr) console.log('STDERR:', stderr);
+      currentTestProcess = testProcess;
+      let currentProcessingRow = 0;
+
+      // Real-time stdout parsing
+      testProcess.stdout?.on('data', (data: Buffer) => {
+        const output = data.toString();
+        console.log('STDOUT:', output);
+
+        // Check for "Processing row X/Y" to mark item as in-progress
+        const processingMatch = output.match(/Processing row (\d+)\/(\d+)/);
+        if (processingMatch) {
+          const rowNum = parseInt(processingMatch[1]);
+          currentProcessingRow = rowNum;
+          // Mark previous pending items as in-progress indicator (optional)
+          console.log(`Now processing row ${rowNum}`);
+        }
+
+        // Parse PO creation success - update immediately
+        const poMatches = output.matchAll(/PO Created: (\d+) for row (\d+)/g);
+        for (const match of poMatches) {
+          const poNumber = match[1];
+          const rowIndex = parseInt(match[2]) - 1;
+          if (job.results[rowIndex] && job.results[rowIndex].status === 'pending') {
+            job.results[rowIndex].status = 'success';
+            job.results[rowIndex].poNumber = poNumber;
+            job.completedItems++;
+            console.log(`✓ Real-time update: Row ${rowIndex + 1} -> PO ${poNumber}`);
+          }
+        }
+
+        // Parse skipped entries - update immediately
+        const skipMatches = output.matchAll(/SKIPPED: Row (\d+) has document date with year 2025/g);
+        for (const match of skipMatches) {
+          const rowIndex = parseInt(match[1]) - 1;
+          if (job.results[rowIndex] && job.results[rowIndex].status === 'pending') {
+            job.results[rowIndex].status = 'failed';
+            job.results[rowIndex].error = 'Skipped - Date year is 2025';
+            job.completedItems++;
+            console.log(`✗ Real-time update: Row ${rowIndex + 1} -> Skipped (2025 date)`);
+          }
+        }
+
+        // Parse failed entries
+        const failMatch = output.match(/Failed to create PO for row (\d+): (.+)/);
+        if (failMatch) {
+          const rowIndex = parseInt(failMatch[1]) - 1;
+          const errorMsg = failMatch[2];
+          if (job.results[rowIndex] && job.results[rowIndex].status === 'pending') {
+            job.results[rowIndex].status = 'failed';
+            job.results[rowIndex].error = errorMsg;
+            job.completedItems++;
+            console.log(`✗ Real-time update: Row ${rowIndex + 1} -> Failed: ${errorMsg}`);
+          }
+        }
+      });
+
+      testProcess.stderr?.on('data', (data: Buffer) => {
+        console.log('STDERR:', data.toString());
+      });
+
+      testProcess.on('close', (code) => {
+        currentTestProcess = null;
 
         if (isTestCancelled) {
           job.status = 'cancelled';
           job.results.forEach(r => {
             if (r.status === 'pending') r.status = 'cancelled';
           });
-        } else if (error) {
-          console.error('Bulk PO test failed:', error.message);
-          // Parse output to see which POs succeeded
-          const poMatches = stdout.matchAll(/PO Created: (\d+) for row (\d+)/g);
-          for (const match of poMatches) {
-            const poNumber = match[1];
-            const rowIndex = parseInt(match[2]) - 1;
-            if (job.results[rowIndex]) {
-              job.results[rowIndex].status = 'success';
-              job.results[rowIndex].poNumber = poNumber;
-              job.completedItems++;
-            }
-          }
-          // Parse skipped entries
-          const skipMatches = stdout.matchAll(/SKIPPED: Row (\d+) has document date with year 2025/g);
-          for (const match of skipMatches) {
-            const rowIndex = parseInt(match[1]) - 1;
-            if (job.results[rowIndex]) {
-              job.results[rowIndex].status = 'failed';
-              job.results[rowIndex].error = 'Skipped - Date year is 2025';
-              job.completedItems++;
-            }
-          }
-          // Mark remaining as failed
-          job.results.forEach(r => {
-            if (r.status === 'pending') r.status = 'failed';
-          });
-          job.status = 'completed';
         } else {
-          // Success - parse all PO numbers from output
-          const poMatches = stdout.matchAll(/PO Created: (\d+) for row (\d+)/g);
-          for (const match of poMatches) {
-            const poNumber = match[1];
-            const rowIndex = parseInt(match[2]) - 1;
-            if (job.results[rowIndex]) {
-              job.results[rowIndex].status = 'success';
-              job.results[rowIndex].poNumber = poNumber;
+          // Mark any remaining pending items as failed
+          job.results.forEach(r => {
+            if (r.status === 'pending') {
+              r.status = 'failed';
+              r.error = 'Did not complete';
               job.completedItems++;
             }
-          }
-          // Parse skipped entries
-          const skipMatches = stdout.matchAll(/SKIPPED: Row (\d+) has document date with year 2025/g);
-          for (const match of skipMatches) {
-            const rowIndex = parseInt(match[1]) - 1;
-            if (job.results[rowIndex]) {
-              job.results[rowIndex].status = 'failed';
-              job.results[rowIndex].error = 'Skipped - Date year is 2025';
-              job.completedItems++;
-            }
-          }
+          });
           job.status = 'completed';
         }
 
         job.endTime = new Date();
         currentBulkJobId = null;
         console.log(`Bulk job ${jobId} completed. Success: ${job.results.filter(r => r.status === 'success').length}/${job.totalItems}`);
+
+        // Cleanup: Delete the uploaded CSV file after processing
+        try {
+          if (fs.existsSync(savedFilePath)) {
+            fs.unlinkSync(savedFilePath);
+            console.log(`Backend cleanup: Deleted uploaded CSV file: ${savedFilePath}`);
+          }
+        } catch (cleanupError) {
+          console.error('Backend cleanup: Failed to delete CSV file:', cleanupError);
+        }
+      });
+
+      testProcess.on('error', (err) => {
+        console.error('Process error:', err);
+        job.status = 'failed';
+        currentTestProcess = null;
+        currentBulkJobId = null;
       });
     })();
 

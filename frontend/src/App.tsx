@@ -186,9 +186,9 @@ function App() {
       const status = await response.json();
       setBulkJobStatus(status);
 
-      // Continue polling if job is still running
+      // Continue polling if job is still running - poll every 1 second for real-time updates
       if (status.status === 'running') {
-        bulkPollRef.current = setTimeout(() => pollBulkJobStatus(jobId), 2000);
+        bulkPollRef.current = setTimeout(() => pollBulkJobStatus(jobId), 1000);
       } else {
         setBulkUploading(false);
       }
@@ -432,10 +432,15 @@ function App() {
                               <span className={
                                 r.status === 'success' ? 'badge-success' :
                                 r.status === 'failed' ? 'badge-fail' :
+                                r.status === 'pending' && bulkJobStatus.status === 'running' ? 'badge-pending processing' :
                                 r.status === 'pending' ? 'badge-pending' :
                                 'badge-cancelled'
                               }>
-                                {r.status === 'pending' ? '...' : r.status}
+                                {r.status === 'pending' && bulkJobStatus.status === 'running'
+                                  ? '⏳ waiting...'
+                                  : r.status === 'pending'
+                                    ? '...'
+                                    : r.status}
                               </span>
                             </td>
                             <td>{r.poNumber || r.error || '-'}</td>
@@ -449,43 +454,40 @@ function App() {
             )}
 
             <div className="bulk-info">
-              <div className="bulk-info-inner">
-                {/* Left side - File Format Requirements */}
-                <div className="bulk-info-left">
-                  <h3>File Format Requirements:</h3>
-                  <p><strong>Required columns:</strong> Material, Quantity, Price</p>
-                  <p><strong>All columns (in order):</strong></p>
-                  <ul>
-                    <li>Document Date (DD.MM.YYYY) - defaults to today</li>
-                    <li>Purchase Org - default: ACS</li>
-                    <li>Purchase Group - default: ACS</li>
-                    <li>Company Code - default: ACS</li>
-                    <li>Account Assignment - default: K</li>
-                    <li>Material - e.g., P-A2026-3</li>
-                    <li>PO Quantity - e.g., 1</li>
-                    <li>Unit of Measure - default: EA</li>
-                    <li>Net Price - e.g., 1000</li>
-                    <li>Plant - default: ACS</li>
-                    <li>GL Account - default: 610010</li>
-                    <li>Cost Center - default: ACSC110</li>
-                  </ul>
+              <h3>File Format Requirements:</h3>
+              <p><strong>Required columns:</strong> Material, Quantity, Price</p>
+              <p><strong>All columns (in order):</strong></p>
+              <ul>
+                <li>Document Date (DD.MM.YYYY) - defaults to today</li>
+                <li>Purchase Org - default: ACS</li>
+                <li>Purchase Group - default: ACS</li>
+                <li>Company Code - default: ACS</li>
+                <li>Account Assignment - default: K</li>
+                <li>Material - e.g., P-A2026-3</li>
+                <li>PO Quantity - e.g., 1</li>
+                <li>Unit of Measure - default: EA</li>
+                <li>Net Price - e.g., 1000</li>
+                <li>Plant - default: ACS</li>
+                <li>GL Account - default: 610010</li>
+                <li>Cost Center - default: ACSC110</li>
+              </ul>
 
-                  <h4>Supported Formats:</h4>
-                  <ul>
-                    <li>📊 <strong>Excel</strong> (.xlsx, .xls) - First sheet will be read</li>
-                    <li>📄 <strong>CSV</strong> (.csv) - Header row required</li>
-                    <li>📋 <strong>JSON</strong> (.json) - Array of objects</li>
-                  </ul>
+              <h4>Supported Formats:</h4>
+              <ul>
+                <li>📊 <strong>Excel</strong> (.xlsx, .xls) - First sheet will be read</li>
+                <li>📄 <strong>CSV</strong> (.csv) - Header row required</li>
+                <li>📋 <strong>JSON</strong> (.json) - Array of objects</li>
+              </ul>
 
-                  <h4>Example CSV:</h4>
-                  <pre>
+              <h4>Example CSV:</h4>
+              <pre>
 {`DocumentDate,PurchaseOrg,PurchaseGroup,CompanyCode,AccountAssignment,Material,Quantity,Unit,Price,Plant,GLAccount,CostCenter
 24.01.2025,ACS,ACS,ACS,K,P-A2026-3,11,EA,99,ACS,610010,ACSC110
 23.01.2025,ACS,ACS,ACS,K,P-A2026-2,34,EA,8763,ACS,610010,ACSC110`}
-                  </pre>
+              </pre>
 
-                  <h4>Example JSON:</h4>
-                  <pre>
+              <h4>Example JSON:</h4>
+              <pre>
 {`[
   {
     "documentDate": "24.01.2025",
@@ -495,42 +497,11 @@ function App() {
     "costCenter": "ACSC110"
   }
 ]`}
-                  </pre>
+              </pre>
 
-                  <a href="/sample-bulk-po.csv" download>
-                    <button className="download-btn">Download Sample CSV Template</button>
-                  </a>
-                </div>
-
-                {/* Right side - Created PO Numbers */}
-                <div className="bulk-info-right">
-                  <h3>Created PO Numbers</h3>
-                  {bulkJobStatus && bulkJobStatus.results.filter(r => r.status === 'success' && r.poNumber).length > 0 ? (
-                    <div className="po-numbers-list">
-                      {bulkJobStatus.results
-                        .filter(r => r.status === 'success' && r.poNumber)
-                        .map((r, i) => (
-                          <div key={i} className="po-number-item">
-                            <span className="po-number">{r.poNumber}</span>
-                            <span className="po-material">{r.material}</span>
-                            <span className="po-details">Qty: {r.quantity} | Price: {r.price}</span>
-                          </div>
-                        ))
-                      }
-                    </div>
-                  ) : (
-                    <div className="no-po-message">
-                      <p>No PO numbers created yet.</p>
-                      <p className="hint">Upload a file to see created POs here.</p>
-                    </div>
-                  )}
-                  {bulkJobStatus && bulkJobStatus.successCount > 0 && (
-                    <div className="po-summary">
-                      <strong>Total Created: {bulkJobStatus.successCount}</strong>
-                    </div>
-                  )}
-                </div>
-              </div>
+              <a href="/sample-bulk-po.csv" download>
+                <button className="download-btn">Download Sample CSV Template</button>
+              </a>
             </div>
           </div>
         )}

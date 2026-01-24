@@ -334,6 +334,17 @@ table tbody tr:hover {
   font-weight: bold;
 }
 
+.badge-pending.processing {
+  background: linear-gradient(90deg, #ffeaa7, #fdcb6e);
+  color: #6c5b1e;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(1.02); }
+}
+
 /* Bulk Upload Styles */
 .bulk-upload-section {
   display: flex;
@@ -423,10 +434,22 @@ table tbody tr:hover {
 
 .row-success {
   background: #d4edda;
+  animation: rowSuccess 0.5s ease-out;
+}
+
+@keyframes rowSuccess {
+  0% { background: #a8e6cf; transform: scale(1.01); }
+  100% { background: #d4edda; transform: scale(1); }
 }
 
 .row-failed {
   background: #f8d7da;
+  animation: rowFailed 0.5s ease-out;
+}
+
+@keyframes rowFailed {
+  0% { background: #ffb8b8; transform: scale(1.01); }
+  100% { background: #f8d7da; transform: scale(1); }
 }
 
 .row-pending {
