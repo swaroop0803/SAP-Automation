@@ -1,0 +1,39 @@
+[
+  {
+    "command": "Create a purchase order for supplier ACS with material P-A2026-3, quantity 1, and price 1000",
+    "action": "create_po",
+    "parameters": {
+      "supplier": "ACS",
+      "material": "P-A2026-3",
+      "quantity": 1,
+      "price": 1000,
+      "plant": "acs",
+      "glAccount": "610010",
+      "companyCode": "acs",
+      "purchaseOrg": "acs",
+      "purchaseGroup": "acs"
+    }
+  },
+  {
+    "command": "Create a purchase order for supplier ACS with material P-B1234-1, quantity 5, and price 500",
+    "action": "create_po",
+    "parameters": {
+      "supplier": "ACS",
+      "material": "P-B1234-1",
+      "quantity": 5,
+      "price": 500,
+      "plant": "acs",
+      "glAccount": "610010"
+    }
+  },
+  {
+    "command": "Complete full procurement flow for material P-A2026-3",
+    "action": "full_flow",
+    "parameters": {
+      "supplier": "ACS",
+      "material": "P-A2026-3",
+      "quantity": 1,
+      "price": 1000
+    }
+  }
+]

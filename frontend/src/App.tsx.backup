@@ -1,0 +1,129 @@
+import { useState } from 'react';
+import { ThemeProvider, CssBaseline } from '@mui/material';
+import { theme } from './theme/theme';
+import Layout from './components/Layout';
+import Dashboard from './components/Dashboard';
+import CommandInput from './components/CommandInput';
+import ExecutionViewer from './components/ExecutionViewer';
+import CommandHistory from './components/CommandHistory';
+import BulkUpload from './components/BulkUpload';
+import { TestCommand, TestStep, type BulkTestData } from './types';
+import { apiService } from './services/api';
+
+function App() {
+  const [currentView, setCurrentView] = useState<'dashboard' | 'execute' | 'history' | 'bulk'>('dashboard');
+  const [commands, setCommands] = useState<TestCommand[]>([]);
+  const [isExecuting, setIsExecuting] = useState(false);
+  const [currentCommand, setCurrentCommand] = useState<string>('');
+  const [currentSteps, setCurrentSteps] = useState<TestStep[]>([]);
+  const [executionError, setExecutionError] = useState<string>('');
+  const [executionDuration, setExecutionDuration] = useState<number>(0);
+
+  const handleExecuteCommand = async (command: string) => {
+    const commandId = `cmd-${Date.now()}`;
+    const newCommand: TestCommand = {
+      id: commandId,
+      command,
+      timestamp: new Date(),
+      status: 'running',
+    };
+
+    // Add command to history
+    setCommands((prev) => [newCommand, ...prev]);
+    setIsExecuting(true);
+    setCurrentCommand(command);
+    setCurrentSteps([]);
+    setExecutionError('');
+
+    try {
+      // Execute test via API
+      const result = await apiService.executeTest(command, (steps) => {
+        setCurrentSteps([...steps]);
+      });
+
+      setExecutionDuration(result.duration);
+
+      // Update command with result
+      setCommands((prev) =>
+        prev.map((cmd) =>
+          cmd.id === commandId
+            ? {
+                ...cmd,
+                status: result.success ? 'completed' : 'failed',
+                result,
+              }
+            : cmd
+        )
+      );
+
+      if (!result.success) {
+        setExecutionError(result.errors?.join(', ') || 'Unknown error');
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Execution failed';
+      setExecutionError(errorMessage);
+
+      setCommands((prev) =>
+        prev.map((cmd) =>
+          cmd.id === commandId
+            ? {
+                ...cmd,
+                status: 'failed',
+                result: {
+                  success: false,
+                  message: errorMessage,
+                  duration: 0,
+                  steps: currentSteps,
+                  errors: [errorMessage],
+                },
+              }
+            : cmd
+        )
+      );
+    } finally {
+      setIsExecuting(false);
+    }
+  };
+
+  const handleExecuteBulk = async (tests: BulkTestData[]) => {
+    setIsExecuting(true);
+
+    for (const test of tests) {
+      await handleExecuteCommand(test.command);
+      // Small delay between tests to avoid overwhelming the system
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+
+    setIsExecuting(false);
+  };
+
+  return (
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <Layout currentView={currentView} onViewChange={setCurrentView}>
+        {currentView === 'dashboard' && <Dashboard commands={commands} />}
+
+        {currentView === 'execute' && (
+          <>
+            <CommandInput onExecute={handleExecuteCommand} isExecuting={isExecuting} />
+            <ExecutionViewer
+              isExecuting={isExecuting}
+              currentCommand={currentCommand}
+              steps={currentSteps}
+              error={executionError}
+              duration={executionDuration}
+            />
+          </>
+        )}
+
+        {currentView === 'bulk' && (
+          <BulkUpload onExecuteBulk={handleExecuteBulk} isExecuting={isExecuting} />
+        )}
+
+        {currentView === 'history' && <CommandHistory commands={commands} />}
+      </Layout>
+    </ThemeProvider>
+  );
+}
+
+export default App;

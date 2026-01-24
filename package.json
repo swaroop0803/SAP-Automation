@@ -1,0 +1,22 @@
+{
+  "name": "playwright-automation-testing",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "npx playwright test",
+    "allure:debug": "npx playwright test --debug",
+    "rep": "npx playwright show-report",
+    "open": "allure open allure-report",
+    "gen": "allure generate allure-results --clean"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@playwright/test": "^1.57.0",
+    "@types/node": "^25.0.8",
+    "allure-playwright": "^3.4.5"
+  }
+}
