@@ -408,15 +408,25 @@ try {
     console.log('Enter pressed after Post (Yes button not found)');
 }
 
-// locator('iframe[name="application-SupplierInvoice-createAdvanced-iframe"]').contentFrame().getByRole('button', { name: 'Other Invoice Document' })
-await crapp.getByRole('button', { name: "Other Invoice Document" }).click()
-const btn = crapp
-  .locator('div[role="button"]')
-  .filter({ hasText: 'Other Invoice Document' })
-  .first();
+// Click Continue button until it's not visible (popup appears after Post/Yes)
+// let continueClicks = 0;
+// while (continueClicks < 10) {
+//     try {
+//         const continueBtn = crapp.getByRole('button', { name: 'Continue' });
+//         await continueBtn.waitFor({ state: 'visible', timeout: 2000 });
+//         await continueBtn.click();
+//         continueClicks++;
+//         console.log(`Continue button clicked (${continueClicks})`);
+//         await page.waitForTimeout(1000);
+//     } catch {
+//         console.log('Continue button no longer visible');
+//         break;
+//     }
+// }
 
-await btn.waitFor({ state: 'visible', timeout: 30000 });
-await btn.click();
+// Click Other Invoice Document button
+await crapp.getByRole('button', { name: "Other Invoice Document" }).click();
+await page.waitForTimeout(1000);
 
 
 
@@ -442,10 +452,6 @@ console.log('Invoice Document Number:', invoiceDocNumber);
 
 
 await page.keyboard.press('Enter')
-await page.waitForTimeout(1000)
-// await page.keyboard.press('Enter')
-
-
 await page.waitForTimeout(1000)
 
 
