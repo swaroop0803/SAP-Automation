@@ -106,6 +106,12 @@ test('Create Bulk Purchase Orders from CSV', async ({ page }) => {
             }
             fs.appendFileSync(resultsPath, csvLine);
 
+            // Also save to poDetails.csv for supplier invoice amount calculation
+            const poDetailsPath = path.join(__dirname, '../../utils/poDetails.csv');
+            const poDetailsLine = `${poNumber},${record.material},${record.quantity},${record.price},${timestamp}\n`;
+            fs.appendFileSync(poDetailsPath, poDetailsLine);
+            console.log(`PO Details saved to poDetails.csv for supplier invoice calculation`);
+
         } catch (error: any) {
             console.error(`Failed to create PO for row ${rowNum}:`, error.message);
 

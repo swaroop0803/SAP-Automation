@@ -245,6 +245,9 @@ export async function BulkPurchaseOrderCreation(page: Page, params?: POParameter
     console.log('Step 17: Pressing Enter to confirm...');
     await page.keyboard.press('Enter');
     await page.keyboard.press('Enter');
+        const NPcol1 = app.getByRole('textbox', { name: 'Net Price' }).first();
+    await NPcol1.focus();
+    await NPcol1.fill(p.price!);
     await page.keyboard.press('Enter');
 
     // saving

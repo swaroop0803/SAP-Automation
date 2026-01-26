@@ -22,7 +22,20 @@ import { fillTextboxInSapFrame, getSapToday } from "../utils/sapUtils";
 
 
 
-export async function Purchaseordercreation(page:Page): Promise<string> {
+// Parameters interface for Purchase Order
+export interface POParams {
+    material?: string;
+    quantity?: string;
+    price?: string;
+}
+
+export async function Purchaseordercreation(page: Page, params?: POParams): Promise<string> {
+    // Use provided params or defaults
+    const material = params?.material || 'P-A2026-3';
+    const quantity = params?.quantity || '1';
+    const price = params?.price || '1000';
+
+    console.log(`Creating PO with: Material=${material}, Quantity=${quantity}, Price=${price}`);
 // navigating to purchase order
 await openFioriApp(page,"create purchase order advanced","Create Purchase Order Advanced Tile")
 
@@ -96,16 +109,16 @@ await page.keyboard.press('Control+F3'); // to open the item overview
 await page.keyboard.type('K');
 
 
-// Material = P-A2026-3
+// Material
 const materialcol = await app.getByRole('textbox', { name: 'Material' }).first()
 await materialcol.focus()
-await materialcol.fill('P-A2026-3');
+await materialcol.fill(material);
 
 
-// PO Quantity = 1
+// PO Quantity
 const POQantity = await app.getByRole('textbox', { name: 'PO Quantity' }).first()
 await POQantity.focus()
-await POQantity.fill('1');
+await POQantity.fill(quantity);
 
 
 // OUn = EA
@@ -119,10 +132,10 @@ await OUhcol.fill('EA');
 // await DDcol.fill(Today);
 
 
-// Net Price = 1000
+// Net Price
 const NPcol = await app.getByRole('textbox', { name: 'Net Price' }).first()
 await NPcol.focus()
-await NPcol.fill('1000');
+await NPcol.fill(price);
 
 
 // Plant = acs
@@ -185,6 +198,17 @@ try {
 
 await page.keyboard.press('Enter');
 await page.keyboard.press('Enter');
+
+// Re-enter Net Price (SAP may show it as span, so click and use keyboard)
+try {
+    const NPcol1 = app.getByRole('textbox', { name: 'Net Price' }).first();
+    await NPcol1.click();
+    await page.keyboard.press('Control+A');
+    await page.keyboard.type(price);
+    console.log('Net Price re-entered:', price);
+} catch {
+    console.log('Net Price field not editable, skipping re-entry');
+}
 await page.keyboard.press('Enter');
 
 // saving

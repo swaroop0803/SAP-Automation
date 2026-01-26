@@ -12,14 +12,17 @@ export async function GoodsReceiptCreation(page: Page, poNumber: string): Promis
     // filling the poNumber passed from purchase order into the field
     await fillTextboxInSapFrame(app, "Purchase Order", poNumber);
 
+
     // Press Enter
     await page.keyboard.press('Enter');
-
+    await page.waitForTimeout(500)
     // clicking Item OK checkbox
     const itemOkCheckbox = app.getByRole('checkbox', { name: 'Item OK' });
     await itemOkCheckbox.waitFor({ state: 'visible', timeout: 30000 });
+    await page.waitForTimeout(500)
     await itemOkCheckbox.check();
 
+    await page.waitForTimeout(800)
     // clicking the post button
     await app.getByRole('button', { name: 'Post  Emphasized' }).click();
 

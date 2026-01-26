@@ -228,6 +228,16 @@ textarea {
   color: #155724;
 }
 
+.step-error {
+  background: #f8d7da;
+  border-left: 4px solid #dc3545;
+  color: #721c24;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: monospace;
+  font-size: 13px;
+}
+
 /* Bulk Upload */
 input[type="file"] {
   padding: 10px;
@@ -617,4 +627,28 @@ table tbody tr:hover {
     border-top: 3px solid #3498db;
     margin-top: 20px;
   }
+}
+
+/* Error Display in History Table */
+.row-failed {
+  background: #fff5f5;
+}
+
+.row-failed:hover {
+  background: #ffe0e0 !important;
+}
+
+.error-cell {
+  color: #6c757d;
+  font-size: 13px;
+  max-width: 300px;
+  word-wrap: break-word;
+}
+
+.row-failed .error-cell {
+  color: #721c24;
+  background: #f8d7da;
+  padding: 8px 12px;
+  border-radius: 4px;
+  border-left: 3px solid #dc3545;
 }

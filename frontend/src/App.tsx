@@ -358,8 +358,8 @@ function App() {
               <div className="execution-viewer">
                 <h3>Execution Progress:</h3>
                 {currentSteps.map((step, i) => (
-                  <div key={i} className="step">
-                    ✓ {step}
+                  <div key={i} className={`step ${step.startsWith('✗') ? 'step-error' : ''}`}>
+                    {step.startsWith('✗') || step.startsWith('⛔') ? step : `✓ ${step}`}
                   </div>
                 ))}
               </div>
@@ -520,16 +520,18 @@ function App() {
                     <th>Status</th>
                     <th>Document #</th>
                     <th>Time</th>
+                    <th>Error Details</th>
                   </tr>
                 </thead>
                 <tbody>
                   {results.map((r, i) => (
-                    <tr key={i}>
+                    <tr key={i} className={r.status === 'Failed' ? 'row-failed' : ''}>
                       <td>{i + 1}</td>
                       <td>{r.command}</td>
                       <td><span className={r.status === 'Success' ? 'badge-success' : r.status === 'Cancelled' ? 'badge-cancelled' : 'badge-fail'}>{r.status}</span></td>
                       <td>{r.documentType !== 'N/A' ? `${r.documentType}: ${r.documentNumber}` : r.documentNumber}</td>
                       <td>{r.time}</td>
+                      <td className="error-cell">{r.error || '-'}</td>
                     </tr>
                   ))}
                 </tbody>

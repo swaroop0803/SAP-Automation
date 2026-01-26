@@ -22,7 +22,7 @@ import {
   HourglassEmpty as HourglassEmptyIcon,
 } from '@mui/icons-material';
 import { useState } from 'react';
-import { TestCommand } from '../types';
+import type { TestCommand } from '../types';
 
 interface CommandHistoryProps {
   commands: TestCommand[];
@@ -114,13 +114,33 @@ function HistoryRow({ command }: { command: TestCommand }) {
                   {command.result.errors && command.result.errors.length > 0 && (
                     <Box sx={{ mt: 2 }}>
                       <Typography variant="subtitle2" color="error" gutterBottom>
-                        Errors:
+                        Error Details:
                       </Typography>
-                      {command.result.errors.map((error, idx) => (
-                        <Typography key={idx} variant="body2" color="error" sx={{ mb: 0.5 }}>
-                          • {error}
-                        </Typography>
-                      ))}
+                      <Paper
+                        sx={{
+                          p: 2,
+                          bgcolor: '#fff5f5',
+                          border: '1px solid #ffcdd2',
+                          maxHeight: 300,
+                          overflow: 'auto'
+                        }}
+                      >
+                        {command.result.errors.map((error, idx) => (
+                          <Typography
+                            key={idx}
+                            variant="body2"
+                            color="error"
+                            sx={{
+                              fontFamily: 'monospace',
+                              whiteSpace: 'pre-wrap',
+                              wordBreak: 'break-word',
+                              fontSize: '0.85rem'
+                            }}
+                          >
+                            {error}
+                          </Typography>
+                        ))}
+                      </Paper>
                     </Box>
                   )}
 

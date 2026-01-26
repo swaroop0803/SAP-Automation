@@ -25,6 +25,18 @@ const groq = process.env.GROQ_API_KEY
 
 const USE_AI_PARSING = process.env.USE_AI_PARSING === 'true' && groq !== null;
 
+// Helper function to get clean environment (removes old SAP-related env vars)
+function getCleanEnv(): NodeJS.ProcessEnv {
+  const cleanEnv = { ...process.env };
+  // Remove SAP-related env vars to prevent interference from previous runs
+  const sapEnvVars = [
+    'AMOUNT', 'PO_NUMBER', 'INVOICE_NUMBER', 'PRICE', 'QUANTITY',
+    'MATERIAL', 'SUPPLIER', 'BULK_CSV_PATH', 'BULK_JOB_ID'
+  ];
+  sapEnvVars.forEach(varName => delete cleanEnv[varName]);
+  return cleanEnv;
+}
+
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -82,6 +94,10 @@ interface AIParseResult {
   action: 'purchase_order' | 'goods_receipt' | 'supplier_invoice' | 'payment' | 'procure_to_pay' | 'unknown';
   poNumber?: string;
   invoiceNumber?: string;
+  material?: string;
+  quantity?: string;
+  price?: string;
+  amount?: string; // For supplier_invoice: total amount (qty × price)
   confidence: number;
   reasoning: string;
 }
@@ -94,17 +110,30 @@ async function parseCommandWithAI(command: string): Promise<AIParseResult> {
   const systemPrompt = `You are an SAP automation assistant that parses natural language commands into structured actions.
 
 Available actions:
-1. purchase_order - Create a new Purchase Order (no input required)
+1. purchase_order - Create a new Purchase Order (can optionally include material, quantity, price)
 2. goods_receipt - Post Goods Receipt for a PO (requires PO number starting with 45, 10 digits)
-3. supplier_invoice - Create Supplier Invoice for a PO (requires PO number starting with 45, 10 digits)
+3. supplier_invoice - Create Supplier Invoice for a PO (requires PO number starting with 45, 10 digits, can include amount)
 4. payment - Process Payment for an invoice (requires Invoice number starting with 51, 10 digits)
 5. procure_to_pay - Run complete end-to-end flow (no input required)
+
+For purchase_order, extract any mentioned:
+- price/cost (numeric value for unit price)
+- quantity/qty (numeric value)
+- material (like P-A2026-3)
+
+For supplier_invoice, extract:
+- poNumber (required)
+- amount (total invoice amount, e.g., "amount 34000" or "total 5000")
 
 Respond in JSON format only:
 {
   "action": "action_name",
   "poNumber": "1234567890" or null,
   "invoiceNumber": "1234567890" or null,
+  "material": "material_code" or null,
+  "quantity": "number" or null,
+  "price": "number" or null,
+  "amount": "number" or null,
   "confidence": 0.0-1.0,
   "reasoning": "brief explanation"
 }`;
@@ -244,6 +273,33 @@ async function parseCommandWithAIFallback(command: string): Promise<ParsedComman
           const envVars: Record<string, string> = {};
           if (aiResult.poNumber) envVars.PO_NUMBER = aiResult.poNumber;
           if (aiResult.invoiceNumber) envVars.INVOICE_NUMBER = aiResult.invoiceNumber;
+          // For purchase_order: pass material, quantity, price if provided
+          if (aiResult.material) envVars.MATERIAL = aiResult.material;
+          if (aiResult.quantity) envVars.QUANTITY = aiResult.quantity;
+          if (aiResult.price) envVars.PRICE = aiResult.price;
+
+          // For supplier_invoice: pass amount if provided
+          if (aiResult.amount) envVars.AMOUNT = aiResult.amount;
+
+          // Backup: extract price from command using regex if AI didn't return it
+          if (aiResult.action === 'purchase_order' && !envVars.PRICE) {
+            const priceMatch = command.match(/(?:price|cost|net\s*price)\s*(?:of|:|\s)*(\d+)/i) ||
+                               command.match(/(\d{3,})\s*(?:price|cost)?/i);
+            if (priceMatch) {
+              envVars.PRICE = priceMatch[1];
+              console.log('📊 Extracted price from command using regex:', envVars.PRICE);
+            }
+          }
+
+          // Extract amount ONLY if user explicitly says "amount X" or "total X" in the command
+          // (Otherwise, test file auto-calculates from poDetails.csv)
+          if (aiResult.action === 'supplier_invoice') {
+            const amountMatch = command.match(/(?:amount|total)\s*(?:of|:|\s)*(\d+)/i);
+            if (amountMatch) {
+              envVars.AMOUNT = amountMatch[1];
+              console.log('📊 User specified amount in command:', envVars.AMOUNT);
+            }
+          }
 
           // Validate required inputs
           if ((aiResult.action === 'goods_receipt' || aiResult.action === 'supplier_invoice') && !aiResult.poNumber) {
@@ -270,6 +326,7 @@ async function parseCommandWithAIFallback(command: string): Promise<ParsedComman
             };
           }
 
+          console.log('📦 Final envVars being passed:', envVars);
           return {
             action: aiResult.action,
             testFile: mapped.testFile,
@@ -372,11 +429,25 @@ function parseCommandPatternBased(command: string): ParsedCommand {
       lowerCommand.includes('execut')));
 
   if (isPOCreation && !hasNumber) {
+    // Extract price, quantity, material from command using regex
+    const priceMatch = lowerCommand.match(/(?:price|cost|amount|net\s*price)\s*[:\s]*(\d+)/i) ||
+                       lowerCommand.match(/(\d+)\s*(?:price|cost|amount)/i) ||
+                       lowerCommand.match(/(?:with|for)\s*(?:price)?\s*(\d+)/i);
+    const quantityMatch = lowerCommand.match(/(?:quantity|qty)\s*(?:of|:|\s)*(\d+)/i) ||
+                          lowerCommand.match(/(\d+)\s*(?:quantity|qty|units?|pieces?)/i);
+    const materialMatch = command.match(/(?:material)\s*[:\s]*([\w-]+)/i) ||
+                          command.match(/(P-[A-Z0-9-]+)/i);
+
+    const envVars: Record<string, string> = {};
+    if (priceMatch) envVars.PRICE = priceMatch[1];
+    if (quantityMatch) envVars.QUANTITY = quantityMatch[1];
+    if (materialMatch) envVars.MATERIAL = materialMatch[1];
+
     return {
       action: 'purchase_order',
       testFile: 'tests/flows/PurchaseOrderFlow.spec.ts',
-      envVars: {},
-      description: 'Creating Purchase Order'
+      envVars,
+      description: `Creating Purchase Order${envVars.PRICE ? ` with price ${envVars.PRICE}` : ''}`
     };
   }
 
@@ -441,11 +512,21 @@ function parseCommandPatternBased(command: string): ParsedCommand {
         description: `ERROR: You provided an Invoice Number (${poNumber}). To create a supplier invoice, you need a PO Number (starts with 4500). Example: "Create invoice for PO 4500001075"`
       };
     }
+
+    // Extract amount ONLY if user explicitly says "amount X" or "total X" in the command
+    // (Otherwise, test file auto-calculates from poDetails.csv)
+    const envVars: Record<string, string> = { PO_NUMBER: poNumber };
+    const amountMatch = lowerCommand.match(/(?:amount|total)\s*(?:of|:|\s)*(\d+)/i);
+    if (amountMatch) {
+      envVars.AMOUNT = amountMatch[1];
+      console.log('📊 User specified amount in command:', envVars.AMOUNT);
+    }
+
     return {
       action: 'supplier_invoice',
       testFile: 'tests/flows/SupplierInvoiceFlow.spec.ts',
-      envVars: { PO_NUMBER: poNumber },
-      description: `Creating Supplier Invoice for PO ${poNumber}`
+      envVars,
+      description: `Creating Supplier Invoice for PO ${poNumber}${envVars.AMOUNT ? ` with explicit amount ${envVars.AMOUNT}` : ' (amount auto-calculated)'}`
     };
   }
 
@@ -604,6 +685,61 @@ function extractPONumber(command: string): string | null {
   return null;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// PO DETAILS LOOKUP - Read from poDetails.csv
+// ═══════════════════════════════════════════════════════════════════════════
+interface PODetails {
+  poNumber: string;
+  material: string;
+  quantity: string;
+  price: string;
+  createdAt: string;
+}
+
+function getPODetailsFromCSV(poNumber: string): PODetails | null {
+  const projectRoot = path.resolve(__dirname, '../..');
+  const poDetailsPath = path.join(projectRoot, 'utils/poDetails.csv');
+
+  if (!fs.existsSync(poDetailsPath)) {
+    console.log('poDetails.csv not found');
+    return null;
+  }
+
+  const csvData = fs.readFileSync(poDetailsPath, 'utf-8');
+  const lines = csvData.split('\n').filter(line => line.trim());
+
+  // Skip header row
+  for (let i = 1; i < lines.length; i++) {
+    const parts = lines[i].split(',');
+    if (parts[0]?.trim() === poNumber) {
+      return {
+        poNumber: parts[0]?.trim(),
+        material: parts[1]?.trim(),
+        quantity: parts[2]?.trim(),
+        price: parts[3]?.trim(),
+        createdAt: parts[4]?.trim()
+      };
+    }
+  }
+
+  console.log(`PO ${poNumber} not found in poDetails.csv`);
+  return null;
+}
+
+function calculateInvoiceAmount(poNumber: string): string | null {
+  const poDetails = getPODetailsFromCSV(poNumber);
+  if (!poDetails) {
+    return null;
+  }
+
+  const quantity = parseFloat(poDetails.quantity) || 1;
+  const price = parseFloat(poDetails.price) || 1000;
+  const amount = Math.round(quantity * price);
+
+  console.log(`📊 Calculated amount for PO ${poNumber}: ${quantity} × ${price} = ${amount}`);
+  return String(amount);
+}
+
 // Extract Invoice Number from command (flexible natural language)
 function extractInvoiceNumber(command: string): string | null {
   const patterns = [
@@ -686,7 +822,7 @@ async function executeTest(command: string) {
         cwd: projectRoot,
         timeout: 600000, // 10 minutes max for full flow
         shell: 'cmd.exe',
-        env: { ...process.env, ...parsed.envVars }
+        env: { ...getCleanEnv(), ...parsed.envVars }
       }, (error, stdout, stderr) => {
         currentTestProcess = null;
         if (isTestCancelled) {
@@ -759,11 +895,41 @@ async function executeTest(command: string) {
     console.error('Test execution error:', error);
 
     const duration = Date.now() - startTime;
-    const errorMessage = error.stderr || error.message || 'Test execution failed';
+
+    // Extract meaningful error from Playwright output (check both stdout and stderr)
+    const stdout = error.stdout || '';
+    const stderr = error.stderr || '';
+    const fullOutput = stdout + '\n' + stderr;
+
+    // Try to extract the actual Playwright error message (TimeoutError, etc.)
+    let errorMessage = 'Test execution failed';
+
+    // Look for common Playwright error patterns
+    const timeoutMatch = fullOutput.match(/TimeoutError:.*?(?=\n\s*at|\n\n|$)/s);
+    const locatorMatch = fullOutput.match(/Error:.*?locator.*?(?=\n\s*at|\n\n|$)/is);
+    const assertionMatch = fullOutput.match(/AssertionError:.*?(?=\n\s*at|\n\n|$)/s);
+    const generalErrorMatch = fullOutput.match(/Error:.*?(?=\n\s*at|\n\n|$)/s);
+
+    if (timeoutMatch) {
+      errorMessage = timeoutMatch[0].trim();
+    } else if (locatorMatch) {
+      errorMessage = locatorMatch[0].trim();
+    } else if (assertionMatch) {
+      errorMessage = assertionMatch[0].trim();
+    } else if (generalErrorMatch) {
+      errorMessage = generalErrorMatch[0].trim();
+    } else if (stderr) {
+      errorMessage = stderr.substring(0, 1000);
+    } else if (error.message) {
+      errorMessage = error.message;
+    }
+
+    // Clean up the error message
+    errorMessage = errorMessage.replace(/\x1b\[[0-9;]*m/g, ''); // Remove ANSI color codes
 
     steps.push({
       id: 'error',
-      description: `✗ Test failed: ${errorMessage.substring(0, 500)}`,
+      description: `✗ Test failed: ${errorMessage}`,
       status: 'failed',
       timestamp: new Date()
     });
@@ -773,7 +939,8 @@ async function executeTest(command: string) {
       message: 'Test execution failed',
       duration,
       steps,
-      errors: [errorMessage]
+      errors: [errorMessage],
+      output: fullOutput // Include full output for debugging
     };
   }
 }
@@ -973,6 +1140,34 @@ app.get('/api/po-status/:poNumber', (req, res) => {
     message: poCreated
       ? `PO ${poNumber} found! Created at ${poCreatedAt}`
       : `PO ${poNumber} not found in records`
+  });
+});
+
+// Get PO details for a specific PO (with quantity and price for invoice calculation)
+app.get('/api/po-details/:poNumber', (req, res) => {
+  const { poNumber } = req.params;
+  const poDetails = getPODetailsFromCSV(poNumber);
+
+  if (!poDetails) {
+    return res.status(404).json({
+      found: false,
+      message: `PO ${poNumber} not found in poDetails.csv. Invoice amount will use default value.`
+    });
+  }
+
+  const quantity = parseFloat(poDetails.quantity) || 1;
+  const price = parseFloat(poDetails.price) || 1000;
+  const calculatedAmount = Math.round(quantity * price);
+
+  res.json({
+    found: true,
+    poNumber: poDetails.poNumber,
+    material: poDetails.material,
+    quantity: poDetails.quantity,
+    price: poDetails.price,
+    calculatedAmount: String(calculatedAmount),
+    createdAt: poDetails.createdAt,
+    message: `Invoice amount will be calculated as: ${quantity} × ${price} = ${calculatedAmount}`
   });
 });
 
@@ -1190,7 +1385,7 @@ app.post('/api/bulk-upload', upload.single('file'), async (req, res) => {
         cwd: projectRoot,
         shell: true,
         env: {
-          ...process.env,
+          ...getCleanEnv(),
           BULK_CSV_PATH: savedFilePath,
           BULK_JOB_ID: jobId
         }
@@ -1370,6 +1565,7 @@ app.listen(PORT, () => {
   console.log(`   GET  /api/bulk-status/:jobId - Get bulk job status`);
   console.log(`   POST /api/bulk-cancel - Cancel bulk job`);
   console.log(`   GET  /api/bulk-jobs - List all bulk jobs`);
+  console.log(`   GET  /api/po-details/:poNumber - Get PO details (qty, price, calculated amount)`);
   console.log(`   GET  /api/commands - Get available commands`);
   console.log(`   GET  /api/health - Health check`);
 });
