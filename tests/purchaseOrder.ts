@@ -199,16 +199,11 @@ try {
 await page.keyboard.press('Enter');
 await page.keyboard.press('Enter');
 
-// Re-enter Net Price (SAP may show it as span, so click and use keyboard)
-try {
-    const NPcol1 = app.getByRole('textbox', { name: 'Net Price' }).first();
-    await NPcol1.click();
-    await page.keyboard.press('Control+A');
-    await page.keyboard.type(price);
-    console.log('Net Price re-entered:', price);
-} catch {
-    console.log('Net Price field not editable, skipping re-entry');
-}
+// Re-enter Net Price (same approach as BulkPurchaseOrder.ts - using focus and fill)
+const NPcol1 = app.getByRole('textbox', { name: 'Net Price' }).first();
+await NPcol1.focus();
+await NPcol1.fill(price);
+console.log('Net Price re-entered:', price);
 await page.keyboard.press('Enter');
 
 // saving
