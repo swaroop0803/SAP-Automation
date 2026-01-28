@@ -12,6 +12,153 @@ import * as XLSX from 'xlsx';
 // Load environment variables
 dotenv.config();
 
+// ═══════════════════════════════════════════════════════════════════════════
+// DOCUMENT TYPE IDENTIFICATION - For pre-validation of document numbers
+// ═══════════════════════════════════════════════════════════════════════════
+
+interface DocumentTypeResult {
+  type: string;           // e.g., "purchaseOrder", "materialDocument", "supplierInvoice"
+  label: string;          // e.g., "Purchase Order", "Material Document"
+  shortLabel: string;     // e.g., "PO", "Mat Doc", "Invoice"
+  isValid: boolean;       // true if matched, false if unknown
+}
+
+interface PrefixConfig {
+  codes: string[];
+  label: string;
+  shortLabel: string;
+}
+
+interface DocumentPrefixesConfig {
+  prefixes: {
+    [key: string]: PrefixConfig;
+  };
+}
+
+// Cache for config to avoid repeated file reads
+let documentConfigCache: DocumentPrefixesConfig | null = null;
+
+/**
+ * Load the document prefixes configuration
+ */
+function loadDocumentConfig(): DocumentPrefixesConfig {
+  if (documentConfigCache) {
+    return documentConfigCache;
+  }
+
+  const projectRoot = path.resolve(__dirname, '../..');
+  const configPath = path.join(projectRoot, 'config/documentPrefixes.json');
+
+  try {
+    const configContent = fs.readFileSync(configPath, 'utf-8');
+    documentConfigCache = JSON.parse(configContent);
+    return documentConfigCache!;
+  } catch (error) {
+    console.error('Failed to load documentPrefixes.json:', error);
+    // Return default config if file not found
+    return {
+      prefixes: {
+        purchaseOrder: { codes: ['45'], label: 'Purchase Order', shortLabel: 'PO' },
+        materialDocument: { codes: ['50'], label: 'Material Document', shortLabel: 'Mat Doc' },
+        supplierInvoice: { codes: ['51'], label: 'Supplier Invoice', shortLabel: 'Invoice' }
+      }
+    };
+  }
+}
+
+/**
+ * Identify document type by analyzing the ID prefix
+ */
+function identifyDocumentType(documentId: string): DocumentTypeResult {
+  if (!documentId || documentId.trim() === '') {
+    return {
+      type: 'unknown',
+      label: 'Unknown',
+      shortLabel: 'Unknown',
+      isValid: false
+    };
+  }
+
+  const config = loadDocumentConfig();
+  const id = documentId.trim();
+
+  // Check each document type's prefixes
+  for (const [type, prefixConfig] of Object.entries(config.prefixes)) {
+    for (const code of prefixConfig.codes) {
+      if (id.startsWith(code)) {
+        return {
+          type,
+          label: prefixConfig.label,
+          shortLabel: prefixConfig.shortLabel,
+          isValid: true
+        };
+      }
+    }
+  }
+
+  // No match found
+  return {
+    type: 'unknown',
+    label: 'Unknown Document Type',
+    shortLabel: 'Unknown',
+    isValid: false
+  };
+}
+
+/**
+ * Validate document type for a specific operation
+ * Returns error message if validation fails, null if valid
+ */
+function validateDocumentTypeForOperation(
+  documentId: string,
+  operation: 'goods_receipt' | 'supplier_invoice' | 'payment'
+): string | null {
+  const docType = identifyDocumentType(documentId);
+
+  // Define required document types for each operation
+  const requirements: Record<string, { requiredType: string; requiredLabel: string; example: string }> = {
+    goods_receipt: {
+      requiredType: 'purchaseOrder',
+      requiredLabel: 'Purchase Order',
+      example: '4500001075'
+    },
+    supplier_invoice: {
+      requiredType: 'purchaseOrder',
+      requiredLabel: 'Purchase Order',
+      example: '4500001075'
+    },
+    payment: {
+      requiredType: 'supplierInvoice',
+      requiredLabel: 'Supplier Invoice',
+      example: '5105600001'
+    }
+  };
+
+  const req = requirements[operation];
+  if (!req) return null; // Unknown operation, skip validation
+
+  // Check if document type matches requirement
+  if (docType.type !== req.requiredType) {
+    const operationLabels: Record<string, string> = {
+      goods_receipt: 'Goods Receipt',
+      supplier_invoice: 'Supplier Invoice',
+      payment: 'Payment'
+    };
+
+    const opLabel = operationLabels[operation] || operation;
+
+    if (docType.isValid) {
+      // User provided a valid document, but wrong type
+      return `✗ This is a ${docType.label}, not a ${req.requiredLabel}. Please check the document number and try again.`;
+    } else {
+      // Unknown document type
+      return `✗ "${documentId}" is not a valid document number. ${opLabel} requires a ${req.requiredLabel}. Please check and try again.`;
+    }
+  }
+
+  return null; // Valid!
+}
+
 // Track running test process for cancellation
 let currentTestProcess: ChildProcess | null = null;
 let isTestCancelled = false;
@@ -78,6 +225,7 @@ interface BulkJobStatus {
     status: 'success' | 'failed' | 'pending' | 'cancelled';
     poNumber?: string;
     error?: string;
+    completedAt?: string; // ISO timestamp when this item completed
   }>;
   startTime: Date;
   endTime?: Date;
@@ -85,6 +233,186 @@ interface BulkJobStatus {
 
 const bulkJobs: Map<string, BulkJobStatus> = new Map();
 let currentBulkJobId: string | null = null;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// USER-FRIENDLY ERROR MESSAGE MAPPER
+// ═══════════════════════════════════════════════════════════════════════════
+
+function getUserFriendlyError(technicalError: string): string {
+  const errorLower = technicalError.toLowerCase();
+
+  // Extract useful info from the error
+  const actionMatch = technicalError.match(/locator\.(click|fill|waitFor|type|press|check|hover|focus|selectOption|scrollIntoViewIfNeeded)/i);
+  const action = actionMatch ? actionMatch[1].toLowerCase() : null;
+
+  // Extract element name from getByRole, getByText, getByLabel, etc.
+  const elementNameMatch = technicalError.match(/name:\s*['"]([^'"]+)['"]/i) ||
+                           technicalError.match(/getByText\(['"]([^'"]+)['"]\)/i) ||
+                           technicalError.match(/getByLabel\(['"]([^'"]+)['"]\)/i) ||
+                           technicalError.match(/aria-label[*]?=["']([^"']+)["']/i);
+  const elementName = elementNameMatch ? elementNameMatch[1] : null;
+
+  // Extract element type
+  const elementTypeMatch = technicalError.match(/getByRole\(['"]([^'"]+)['"]/i);
+  const elementType = elementTypeMatch ? elementTypeMatch[1] : null;
+
+  // Build friendly element description
+  let elementDesc = 'an element';
+  if (elementType && elementName) {
+    elementDesc = `the "${elementName}" ${elementType}`;
+  } else if (elementName) {
+    elementDesc = `"${elementName}"`;
+  } else if (elementType) {
+    elementDesc = `a ${elementType}`;
+  }
+
+  // Map action to friendly verb
+  const actionMap: Record<string, string> = {
+    'click': 'click',
+    'fill': 'enter data into',
+    'waitfor': 'find',
+    'type': 'type into',
+    'press': 'press key on',
+    'check': 'check',
+    'hover': 'hover over',
+    'focus': 'focus on',
+    'selectoption': 'select option in',
+    'scrollintoviewifneeded': 'scroll to'
+  };
+  const friendlyAction = action ? (actionMap[action] || action) : 'interact with';
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ERROR TYPE DETECTION AND FRIENDLY MESSAGE GENERATION
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // Timeout errors - Be specific about which element is not visible
+  if (errorLower.includes('timeout') && errorLower.includes('exceeded')) {
+    // Check if it's waiting for visibility
+    if (errorLower.includes('to be visible') || errorLower.includes('waitfor')) {
+      if (elementType && elementName) {
+        return `The "${elementName}" ${elementType} is not visible. Please try again.`;
+      } else if (elementName) {
+        return `The "${elementName}" element is not visible. Please try again.`;
+      } else if (elementType) {
+        return `A ${elementType} element is not visible. Please try again.`;
+      }
+    }
+    // Check for click timeout
+    if (action === 'click') {
+      if (elementType && elementName) {
+        return `Could not click the "${elementName}" ${elementType}. It may not be clickable. Please try again.`;
+      } else if (elementName) {
+        return `Could not click "${elementName}". It may not be clickable. Please try again.`;
+      }
+    }
+    // Check for fill/type timeout
+    if (action === 'fill' || action === 'type') {
+      if (elementType && elementName) {
+        return `Could not enter data into the "${elementName}" ${elementType}. Please try again.`;
+      } else if (elementName) {
+        return `Could not enter data into "${elementName}". Please try again.`;
+      }
+    }
+    // Check for checkbox
+    if (action === 'check' || elementType === 'checkbox') {
+      if (elementName) {
+        return `The "${elementName}" checkbox is not visible. Please try again.`;
+      }
+      return `A checkbox is not visible. Please try again.`;
+    }
+    // Generic timeout with element info
+    if (elementDesc !== 'an element') {
+      return `${elementDesc} is not visible or not responding. Please try again.`;
+    }
+    return `The page took too long to respond. Please try again.`;
+  }
+
+  // Element not interactable (span instead of input, etc.)
+  if (errorLower.includes('element is not an <input>') ||
+      errorLower.includes('not an input') ||
+      errorLower.includes('not editable') ||
+      errorLower.includes('not interactable')) {
+    if (elementType && elementName) {
+      return `The "${elementName}" ${elementType} is not editable. Please try again.`;
+    } else if (elementName) {
+      return `The "${elementName}" field is not editable. Please try again.`;
+    }
+    return `The field is not editable. Please try again.`;
+  }
+
+  // Element not visible
+  if (errorLower.includes('not visible') || errorLower.includes('hidden')) {
+    if (elementType && elementName) {
+      return `The "${elementName}" ${elementType} is not visible. Please try again.`;
+    } else if (elementName) {
+      return `The "${elementName}" element is not visible. Please try again.`;
+    }
+    return `An element is not visible. It may be hidden or not loaded yet. Please try again.`;
+  }
+
+  // Element not found / detached
+  if (errorLower.includes('no element') ||
+      errorLower.includes('not found') ||
+      errorLower.includes('detached') ||
+      errorLower.includes('strict mode violation')) {
+    if (elementType && elementName) {
+      return `The "${elementName}" ${elementType} was not found on the page. Please try again.`;
+    } else if (elementName) {
+      return `The "${elementName}" element was not found on the page. Please try again.`;
+    }
+    return `An element was not found on the page. Please try again.`;
+  }
+
+  // Navigation errors
+  if (errorLower.includes('navigation') || errorLower.includes('navigate')) {
+    return 'Failed to navigate to the required page. Please check if SAP is accessible.';
+  }
+
+  // Login/authentication errors
+  if (errorLower.includes('login') || errorLower.includes('password') ||
+      errorLower.includes('username') || errorLower.includes('authentication') ||
+      errorLower.includes('unauthorized')) {
+    return 'Login failed. Please check your SAP credentials.';
+  }
+
+  // Network errors
+  if (errorLower.includes('net::') || errorLower.includes('network') ||
+      errorLower.includes('econnrefused') || errorLower.includes('enotfound') ||
+      errorLower.includes('connection refused')) {
+    return 'Network error. Please check your internet connection and SAP server availability.';
+  }
+
+  // Frame/iframe errors
+  if (errorLower.includes('frame') && (errorLower.includes('detached') || errorLower.includes('not found'))) {
+    return 'The SAP application window closed unexpectedly. Please try again.';
+  }
+
+  // Browser crashed or closed
+  if (errorLower.includes('browser') && (errorLower.includes('closed') || errorLower.includes('crashed'))) {
+    return 'The browser closed unexpectedly. Please try again.';
+  }
+
+  // Target closed (page closed)
+  if (errorLower.includes('target closed') || errorLower.includes('page closed')) {
+    return 'The page closed unexpectedly. Please try again.';
+  }
+
+  // Assertion errors
+  if (errorLower.includes('assert') || errorLower.includes('expect')) {
+    if (elementType && elementName) {
+      return `Verification failed: The "${elementName}" ${elementType} did not match expected state.`;
+    }
+    return 'A verification check failed. The expected result was not found.';
+  }
+
+  // Generic fallback with action context if available
+  if (action && elementDesc !== 'an element') {
+    return `Failed to ${friendlyAction} ${elementDesc}. Please try again.`;
+  }
+
+  // Final fallback
+  return 'An error occurred during the operation. Please try again.';
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // AI-POWERED COMMAND PARSING WITH CLAUDE
@@ -110,11 +438,13 @@ async function parseCommandWithAI(command: string): Promise<AIParseResult> {
   const systemPrompt = `You are an SAP automation assistant that parses natural language commands into structured actions.
 
 Available actions:
-1. purchase_order - Create a new Purchase Order (can optionally include material, quantity, price)
+1. purchase_order - Create a new Purchase Order ONLY (can optionally include material, quantity, price)
 2. goods_receipt - Post Goods Receipt for a PO (requires PO number starting with 45, 10 digits)
 3. supplier_invoice - Create Supplier Invoice for a PO (requires PO number starting with 45, 10 digits, can include amount)
 4. payment - Process Payment for an invoice (requires Invoice number starting with 51, 10 digits)
-5. procure_to_pay - Run complete end-to-end flow (no input required)
+5. procure_to_pay - Run complete end-to-end P2P/P-P flow (PO → GR → Invoice → Payment). Keywords: "p2p", "p-p", "p-p flow", "p2p flow", "procure to pay", "full flow", "complete flow", "end to end". Can optionally include material, quantity, price.
+
+IMPORTANT: If user says "p-p flow", "p2p flow", "p-p", "p2p", "procure to pay", "full flow", "complete flow", or "end to end" - ALWAYS use procure_to_pay, even if they also mention material/quantity/price.
 
 For purchase_order, extract any mentioned:
 - price/cost (numeric value for unit price)
@@ -273,7 +603,7 @@ async function parseCommandWithAIFallback(command: string): Promise<ParsedComman
           const envVars: Record<string, string> = {};
           if (aiResult.poNumber) envVars.PO_NUMBER = aiResult.poNumber;
           if (aiResult.invoiceNumber) envVars.INVOICE_NUMBER = aiResult.invoiceNumber;
-          // For purchase_order: pass material, quantity, price if provided
+          // For purchase_order and procure_to_pay: pass material, quantity, price if provided
           if (aiResult.material) envVars.MATERIAL = aiResult.material;
           if (aiResult.quantity) envVars.QUANTITY = aiResult.quantity;
           if (aiResult.price) envVars.PRICE = aiResult.price;
@@ -281,13 +611,29 @@ async function parseCommandWithAIFallback(command: string): Promise<ParsedComman
           // For supplier_invoice: pass amount if provided
           if (aiResult.amount) envVars.AMOUNT = aiResult.amount;
 
-          // Backup: extract price from command using regex if AI didn't return it
-          if (aiResult.action === 'purchase_order' && !envVars.PRICE) {
+          // Backup: extract price, quantity, material from command using regex if AI didn't return them
+          if ((aiResult.action === 'purchase_order' || aiResult.action === 'procure_to_pay') && !envVars.PRICE) {
             const priceMatch = command.match(/(?:price|cost|net\s*price)\s*(?:of|:|\s)*(\d+)/i) ||
                                command.match(/(\d{3,})\s*(?:price|cost)?/i);
             if (priceMatch) {
               envVars.PRICE = priceMatch[1];
               console.log('📊 Extracted price from command using regex:', envVars.PRICE);
+            }
+          }
+          if ((aiResult.action === 'purchase_order' || aiResult.action === 'procure_to_pay') && !envVars.QUANTITY) {
+            const qtyMatch = command.match(/(?:quantity|qty)\s*(?:of|:|\s)*(\d+)/i) ||
+                             command.match(/(\d+)\s*(?:quantity|qty|units?|pieces?)/i);
+            if (qtyMatch) {
+              envVars.QUANTITY = qtyMatch[1];
+              console.log('📊 Extracted quantity from command using regex:', envVars.QUANTITY);
+            }
+          }
+          if ((aiResult.action === 'purchase_order' || aiResult.action === 'procure_to_pay') && !envVars.MATERIAL) {
+            const matMatch = command.match(/(?:material)\s*[:\s]*([\w-]+)/i) ||
+                             command.match(/(P-[A-Z0-9-]+)/i);
+            if (matMatch) {
+              envVars.MATERIAL = matMatch[1];
+              console.log('📊 Extracted material from command using regex:', envVars.MATERIAL);
             }
           }
 
@@ -379,15 +725,40 @@ function parseCommandPatternBased(command: string): ParsedCommand {
     'full p2p', 'complete p2p', 'entire p2p',
     'full procedure', 'complete procedure', 'entire procedure',
     'run the full', 'execute the full', 'run the complete',
-    'run the entire', 'start the full', 'start the complete'
+    'run the entire', 'start the full', 'start the complete',
+    // Make/Create variations
+    'make p2p', 'make p-p', 'make procedure to pay', 'make procure to pay',
+    'create p2p', 'create p-p', 'create procedure to pay', 'create procure to pay',
+    'p-p flow', 'p2p flow', 'procedure to pay flow', 'procure to pay flow'
   ];
 
   if (matchesAny(lowerCommand, p2pPatterns)) {
+    // Extract price, quantity, material from P2P command
+    const priceMatch = lowerCommand.match(/(?:price|cost|net\s*price)\s*[:\s]*(\d+)/i) ||
+                       lowerCommand.match(/(\d+)\s*(?:price|cost)/i);
+    const quantityMatch = lowerCommand.match(/(?:quantity|qty)\s*(?:of|:|\s)*(\d+)/i) ||
+                          lowerCommand.match(/(\d+)\s*(?:quantity|qty|units?|pieces?)/i);
+    const materialMatch = command.match(/(?:material)\s*[:\s]*([\w-]+)/i) ||
+                          command.match(/(P-[A-Z0-9-]+)/i);
+
+    const envVars: Record<string, string> = {};
+    if (priceMatch) envVars.PRICE = priceMatch[1];
+    if (quantityMatch) envVars.QUANTITY = quantityMatch[1];
+    if (materialMatch) envVars.MATERIAL = materialMatch[1];
+
+    // Build description with parameters
+    let desc = 'Running complete Procure-to-Pay flow';
+    const params: string[] = [];
+    if (envVars.PRICE) params.push(`price ${envVars.PRICE}`);
+    if (envVars.QUANTITY) params.push(`qty ${envVars.QUANTITY}`);
+    if (envVars.MATERIAL) params.push(`material ${envVars.MATERIAL}`);
+    if (params.length > 0) desc += ` with ${params.join(', ')}`;
+
     return {
       action: 'procure_to_pay',
       testFile: 'tests/procureToPay.spec.ts',
-      envVars: {},
-      description: 'Running complete Procure-to-Pay flow'
+      envVars,
+      description: desc
     };
   }
 
@@ -786,6 +1157,57 @@ async function executeTest(command: string) {
       };
     }
 
+    // ═══════════════════════════════════════════════════════════════════════════
+    // PRE-VALIDATION: Check document type BEFORE running the test
+    // ═══════════════════════════════════════════════════════════════════════════
+    if (parsed.action === 'goods_receipt' || parsed.action === 'supplier_invoice') {
+      const poNumber = parsed.envVars.PO_NUMBER;
+      if (poNumber) {
+        const validationError = validateDocumentTypeForOperation(poNumber, parsed.action as 'goods_receipt' | 'supplier_invoice');
+        if (validationError) {
+          console.log('🚫 Pre-validation failed:', validationError);
+          return {
+            success: false,
+            message: validationError,
+            duration: 0,
+            steps: [{
+              id: 'validation-error',
+              description: validationError,
+              status: 'failed',
+              timestamp: new Date()
+            }],
+            errors: [validationError],
+            validationFailed: true
+          };
+        }
+        console.log(`✓ Pre-validation passed: ${poNumber} is a valid Purchase Order number`);
+      }
+    }
+
+    if (parsed.action === 'payment') {
+      const invoiceNumber = parsed.envVars.INVOICE_NUMBER;
+      if (invoiceNumber) {
+        const validationError = validateDocumentTypeForOperation(invoiceNumber, 'payment');
+        if (validationError) {
+          console.log('🚫 Pre-validation failed:', validationError);
+          return {
+            success: false,
+            message: validationError,
+            duration: 0,
+            steps: [{
+              id: 'validation-error',
+              description: validationError,
+              status: 'failed',
+              timestamp: new Date()
+            }],
+            errors: [validationError],
+            validationFailed: true
+          };
+        }
+        console.log(`✓ Pre-validation passed: ${invoiceNumber} is a valid Supplier Invoice number`);
+      }
+    }
+
     // Add initial steps
     const aiInfo = parsed.aiParsed
       ? ` (AI: ${Math.round((parsed.aiConfidence || 0) * 100)}% confidence)`
@@ -906,9 +1328,9 @@ async function executeTest(command: string) {
 
     // Look for common Playwright error patterns
     const timeoutMatch = fullOutput.match(/TimeoutError:.*?(?=\n\s*at|\n\n|$)/s);
-    const locatorMatch = fullOutput.match(/Error:.*?locator.*?(?=\n\s*at|\n\n|$)/is);
+    const locatorMatch = fullOutput.match(/Error:.*?locator\.[^:]+:.*?(?=\n\s*at|\n\n|$)/is);
     const assertionMatch = fullOutput.match(/AssertionError:.*?(?=\n\s*at|\n\n|$)/s);
-    const generalErrorMatch = fullOutput.match(/Error:.*?(?=\n\s*at|\n\n|$)/s);
+    const genericErrorMatch = fullOutput.match(/Error:.*?(?=\n\s*at|\n\n|$)/s);
 
     if (timeoutMatch) {
       errorMessage = timeoutMatch[0].trim();
@@ -916,8 +1338,8 @@ async function executeTest(command: string) {
       errorMessage = locatorMatch[0].trim();
     } else if (assertionMatch) {
       errorMessage = assertionMatch[0].trim();
-    } else if (generalErrorMatch) {
-      errorMessage = generalErrorMatch[0].trim();
+    } else if (genericErrorMatch) {
+      errorMessage = genericErrorMatch[0].trim();
     } else if (stderr) {
       errorMessage = stderr.substring(0, 1000);
     } else if (error.message) {
@@ -927,19 +1349,22 @@ async function executeTest(command: string) {
     // Clean up the error message
     errorMessage = errorMessage.replace(/\x1b\[[0-9;]*m/g, ''); // Remove ANSI color codes
 
+    // Convert to user-friendly message for display
+    const userFriendlyError = getUserFriendlyError(errorMessage);
+
     steps.push({
       id: 'error',
-      description: `✗ Test failed: ${errorMessage}`,
+      description: `✗ ${userFriendlyError}`,
       status: 'failed',
       timestamp: new Date()
     });
 
     return {
       success: false,
-      message: 'Test execution failed',
+      message: userFriendlyError,
       duration,
       steps,
-      errors: [errorMessage],
+      errors: [errorMessage], // Keep technical error for debugging
       output: fullOutput // Include full output for debugging
     };
   }
@@ -1416,6 +1841,7 @@ app.post('/api/bulk-upload', upload.single('file'), async (req, res) => {
           if (job.results[rowIndex] && job.results[rowIndex].status === 'pending') {
             job.results[rowIndex].status = 'success';
             job.results[rowIndex].poNumber = poNumber;
+            job.results[rowIndex].completedAt = new Date().toISOString();
             job.completedItems++;
             console.log(`✓ Real-time update: Row ${rowIndex + 1} -> PO ${poNumber}`);
           }
@@ -1428,6 +1854,7 @@ app.post('/api/bulk-upload', upload.single('file'), async (req, res) => {
           if (job.results[rowIndex] && job.results[rowIndex].status === 'pending') {
             job.results[rowIndex].status = 'failed';
             job.results[rowIndex].error = 'Skipped - Date year is 2025';
+            job.results[rowIndex].completedAt = new Date().toISOString();
             job.completedItems++;
             console.log(`✗ Real-time update: Row ${rowIndex + 1} -> Skipped (2025 date)`);
           }
@@ -1441,6 +1868,7 @@ app.post('/api/bulk-upload', upload.single('file'), async (req, res) => {
           if (job.results[rowIndex] && job.results[rowIndex].status === 'pending') {
             job.results[rowIndex].status = 'failed';
             job.results[rowIndex].error = errorMsg;
+            job.results[rowIndex].completedAt = new Date().toISOString();
             job.completedItems++;
             console.log(`✗ Real-time update: Row ${rowIndex + 1} -> Failed: ${errorMsg}`);
           }
@@ -1511,11 +1939,18 @@ app.get('/api/bulk-status/:jobId', (req, res) => {
   const successCount = job.results.filter(r => r.status === 'success').length;
   const failedCount = job.results.filter(r => r.status === 'failed').length;
 
+  // Calculate duration in milliseconds
+  const endTime = job.endTime || new Date();
+  const durationMs = endTime.getTime() - job.startTime.getTime();
+
   res.json({
     ...job,
     successCount,
     failedCount,
-    progress: Math.round((job.completedItems / job.totalItems) * 100)
+    progress: Math.round((job.completedItems / job.totalItems) * 100),
+    durationMs,
+    startTimeISO: job.startTime.toISOString(),
+    endTimeISO: job.endTime?.toISOString()
   });
 });
 

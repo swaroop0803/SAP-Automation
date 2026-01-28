@@ -24,7 +24,7 @@ This document lists all supported commands for the SAP Playwright automation sys
 
 ## 1. Create Purchase Order
 
-Creates a new Purchase Order in SAP. **No additional input required.**
+Creates a new Purchase Order in SAP. Supports optional parameters: **material, quantity, price**.
 
 ### Basic Commands
 ```
@@ -82,7 +82,27 @@ PO for vendor
 PO with default values
 Purchase order with vendor
 Purchase order for company
+create a po with price 3000
+create po with quantity 5
+create po with price 2000 quantity 3
+create a po with material P-A2026-3
+create po with price 3000 quantity 5 material P-A2026-2
+po with cost 5000
+po qty 10 price 1000
+create po price 3000 qty 5
 ```
+
+### Parameter Keywords
+| Parameter | Keywords | Example |
+|-----------|----------|---------|
+| Price | `price`, `cost`, `net price`, `amount` | `price 3000`, `cost 5000` |
+| Quantity | `quantity`, `qty`, `units`, `pieces` | `quantity 5`, `qty 10` |
+| Material | `material` | `material P-A2026-3` |
+
+### Default Values (if not specified)
+- Material: `P-A2026-3`
+- Quantity: `1`
+- Price: `1000`
 
 ---
 
@@ -147,11 +167,17 @@ GRN for PO 4500000130
 Receive goods for PO 4500000130
 ```
 
+### Short Commands
+```
+gr 4500000130
+goods 4500000130
+```
+
 ---
 
 ## 3. Create Supplier Invoice
 
-Creates a Supplier Invoice for an existing Purchase Order. **Requires PO Number (10 digits starting with 45).**
+Creates a Supplier Invoice for an existing Purchase Order. **Requires PO Number. Amount is auto-calculated from poDetails.csv (Qty × Price).**
 
 ### Basic Commands
 ```
@@ -198,6 +224,19 @@ Invoice linked to PO 4500000130
 Supplier invoice for purchase order 4500000130
 Vendor invoice with PO number 4500000130
 ```
+
+### Short Commands
+```
+invoice 4500000130
+supplier 4500000130
+supplier invoice 4500000130
+```
+
+### Amount Calculation (Auto)
+- When PO is created, details are saved to `utils/poDetails.csv`
+- Invoice amount = Quantity × Price from that PO
+- Example: PO with qty=5, price=1000 → Invoice amount = 5000
+- If PO not found in CSV, defaults to 1000
 
 ---
 
@@ -257,11 +296,17 @@ Vendor payment for 5105600813
 Supplier payment for invoice 5105600813
 ```
 
+### Short Commands
+```
+payment 5105600813
+pay 5105600813
+```
+
 ---
 
 ## 5. Procure to Pay (End-to-End Flow)
 
-Runs the complete procurement flow: PO -> Goods Receipt -> Invoice -> Payment. **No additional input required.**
+Runs the complete procurement flow: **PO → Goods Receipt → Invoice → Payment**. No additional input required.
 
 ### Direct Commands
 ```
@@ -389,40 +434,50 @@ creat payment, crate payment, craete payment
 Purchase Order ──────> Goods Receipt ──────> Supplier Invoice ──────> Payment
      │                      │                       │                    │
      ▼                      ▼                       ▼                    ▼
-  PO Number          pOnumbergoods.csv        pOnumberinvoice.csv     Complete
-  (4500xxxxxx)           logged               + invoiceno.csv
-                                                  logged
+  PO Number            Material Doc             Invoice Doc          Completed
+ (4500xxxxxx)          (5000xxxxxx)            (5105xxxxxx)
+     │
+     ▼
+ poDetails.csv
+ (qty, price saved)
 ```
 
 ---
 
 ## CSV Tracking Files
 
-| File | Location | Columns | Purpose |
-|------|----------|---------|---------|
-| `pOnumbergoods.csv` | utils/ | PO_Number, Timestamp | Tracks Goods Receipts |
-| `pOnumberinvoice.csv` | utils/ | PO_Number, Invoice_Number, Timestamp | Tracks Invoices |
-| `invoiceno.csv` | utils/ | Invoice_Number, PO_Number, Timestamp | Invoice reference for payments |
+| File | Location | Purpose |
+|------|----------|---------|
+| `poDetails.csv` | utils/ | Stores PO details (qty, price) for invoice amount calculation |
+| `purchaseorderno.csv` | utils/ | List of all created PO numbers |
+| `pOnumbergoods.csv` | utils/ | POs with goods receipt completed |
+| `pOnumberinvoice.csv` | utils/ | POs with invoice completed |
 
 ---
 
-## Running Tests via CLI
+## Running Tests via CLI (Windows PowerShell)
 
-```bash
-# Purchase Order (no env var needed)
-npx playwright test tests/flows/PurchaseOrderFlow.spec.ts
+```powershell
+# Purchase Order (default values)
+npx playwright test tests/flows/PurchaseOrderFlow.spec.ts --headed
 
-# Goods Receipt (requires PO_NUMBER)
-PO_NUMBER=4500000130 npx playwright test tests/flows/GoodsReceiptFlow.spec.ts
+# Purchase Order with parameters
+$env:PRICE="3000"; $env:QUANTITY="5"; $env:MATERIAL="P-A2026-3"; npx playwright test tests/flows/PurchaseOrderFlow.spec.ts --headed
 
-# Supplier Invoice (requires PO_NUMBER)
-PO_NUMBER=4500000130 npx playwright test tests/flows/SupplierInvoiceFlow.spec.ts
+# Goods Receipt
+$env:PO_NUMBER="4500000130"; npx playwright test tests/flows/GoodsReceiptFlow.spec.ts --headed
 
-# Payment (requires INVOICE_NUMBER)
-INVOICE_NUMBER=5105600813 npx playwright test tests/flows/PaymentFlow.spec.ts
+# Supplier Invoice (amount auto-calculated)
+$env:PO_NUMBER="4500000130"; npx playwright test tests/flows/SupplierInvoiceFlow.spec.ts --headed
 
-# Full P2P Flow (no env var needed)
-npx playwright test tests/procureToPay.spec.ts
+# Payment
+$env:INVOICE_NUMBER="5105600813"; npx playwright test tests/flows/PaymentFlow.spec.ts --headed
+
+# Full P2P Flow
+npx playwright test tests/procureToPay.spec.ts --headed
+
+# Bulk PO Creation
+$env:BULK_CSV_PATH="C:\path\to\file.csv"; npx playwright test tests/flows/BulkPOFlow.spec.ts --headed
 ```
 
 ---
@@ -435,6 +490,11 @@ npx playwright test tests/procureToPay.spec.ts
 curl -X POST http://localhost:3001/api/execute \
   -H "Content-Type: application/json" \
   -d '{"command": "Create a purchase order"}'
+
+# Purchase Order with parameters
+curl -X POST http://localhost:3001/api/execute \
+  -H "Content-Type: application/json" \
+  -d '{"command": "create a po with price 3000 quantity 5"}'
 
 # Goods Receipt
 curl -X POST http://localhost:3001/api/execute \
@@ -455,6 +515,11 @@ curl -X POST http://localhost:3001/api/execute \
 curl -X POST http://localhost:3001/api/execute \
   -H "Content-Type: application/json" \
   -d '{"command": "Run P2P"}'
+```
+
+### Get PO Details (for invoice calculation)
+```bash
+curl http://localhost:3001/api/po-details/4500000130
 ```
 
 ### Get Available Commands
@@ -498,17 +563,17 @@ Unknown command. Try:
 
 Check CSV files for recently created PO and Invoice numbers:
 
-```bash
+```powershell
+# View recent PO details
+type utils\poDetails.csv
+
 # View recent Goods Receipts
 type utils\pOnumbergoods.csv
 
 # View recent Invoices
 type utils\pOnumberinvoice.csv
-
-# View Invoice numbers for payments
-type utils\invoiceno.csv
 ```
 
 ---
 
-**Last Updated**: 2026-01-23
+**Last Updated**: 2026-01-26

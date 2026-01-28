@@ -15,11 +15,21 @@ export async function GoodsReceiptCreation(page: Page, poNumber: string): Promis
 
     // Press Enter
     await page.keyboard.press('Enter');
-    await page.waitForTimeout(500)
+    await page.waitForTimeout(3000); // Wait for SAP to fully respond
+
+    // Check if PO has already been used for Goods Receipt (no selectable items)
+    const noSelectableItemsError = app.getByText(/does not contain any selectable items/i).first();
+    const isGoodsReceiptAlreadyCreated = await noSelectableItemsError.isVisible().catch(() => false);
+
+    if (isGoodsReceiptAlreadyCreated) {
+        console.log('Detected: PO already used for Goods Receipt');
+        throw new Error(`GOODS_RECEIPT_ALREADY_EXISTS: This Purchase Order (${poNumber}) has already been used to create a Goods Receipt. Cannot create another Goods Receipt for the same PO.`);
+    }
+
     // clicking Item OK checkbox
     const itemOkCheckbox = app.getByRole('checkbox', { name: 'Item OK' });
     await itemOkCheckbox.waitFor({ state: 'visible', timeout: 30000 });
-    await page.waitForTimeout(500)
+    await page.waitForTimeout(500);
     await itemOkCheckbox.check();
 
     await page.waitForTimeout(800)

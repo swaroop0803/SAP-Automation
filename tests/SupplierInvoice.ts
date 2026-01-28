@@ -43,13 +43,50 @@ export async function SupplierInvoiceCreation(page: Page, poNumber: string, amou
     }
 
     // filling the po number in the supplier to get the details
-    await fillTextboxInSapFrame(crapp, "Purchasing Document", poNumber);
+    await page.waitForTimeout(1000); // Wait for page to fully load
+
+    // Try to fill Purchasing Document with fallback
+    try {
+        await fillTextboxInSapFrame(crapp, "Purchasing Document", poNumber);
+    } catch {
+        // Fallback: try clicking and typing
+        console.log('Fallback: Using click + type for Purchasing Document');
+        const purchDocField = crapp.getByRole('textbox', { name: 'Purchasing Document' }).first();
+        await purchDocField.click();
+        await page.keyboard.press('Control+A');
+        await page.keyboard.type(poNumber);
+    }
     await page.keyboard.press('Enter');
+
+
     // await page.waitForTimeout(500);  // Wait for SAP to load PO details
     // await page.keyboard.press('Enter');
     // await page.waitForTimeout(500);  // Wait for SAP to load PO details
     // await page.keyboard.press('Enter');
-    await page.waitForTimeout(1000);  // Wait for SAP to load PO details
+    await page.waitForTimeout(1500);  // Wait for SAP to load PO details
+
+    // Check if Supplier Invoice has already been created (Balance = 0)
+    try {
+        const balanceField = crapp.getByRole('textbox', { name: 'Balance' });
+        await balanceField.waitFor({ state: 'visible', timeout: 3000 });
+
+        const balanceValue = await balanceField.inputValue();
+        console.log('Balance field value:', balanceValue);
+
+        // Check if balance is zero using regex (matches "0,00", "0.00", "0,00 ", etc.)
+        const isZeroBalance = /^[\s]*0[,.]?0{0,2}[\s]*$/.test(balanceValue.trim());
+
+        if (isZeroBalance) {
+            throw new Error(`SUPPLIER_INVOICE_ALREADY_EXISTS: The Supplier Invoice has already been created for this PO (${poNumber}). Balance is zero. Please retry with a different Purchase Order.`);
+        }
+    } catch (error: any) {
+        // Re-throw if it's our custom error
+        if (error.message?.includes('SUPPLIER_INVOICE_ALREADY_EXISTS')) {
+            throw error;
+        }
+        // Otherwise, balance field wasn't found or had issues - continue normally
+        console.log('Balance check skipped or passed:', error.message);
+    }
 
     // fill amount (uses provided amount or defaults to 1000) - same as trail.spec.ts
     console.log(`📊 Filling Amount field with: ${invoiceAmount}`);

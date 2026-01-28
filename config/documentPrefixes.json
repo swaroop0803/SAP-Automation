@@ -1,0 +1,20 @@
+{
+  "prefixes": {
+    "purchaseOrder": {
+      "codes": ["45"],
+      "label": "Purchase Order",
+      "shortLabel": "PO"
+    },
+    "materialDocument": {
+      "codes": ["50"],
+      "label": "Material Document",
+      "shortLabel": "Mat Doc"
+    },
+    "supplierInvoice": {
+      "codes": ["51"],
+      "label": "Supplier Invoice",
+      "shortLabel": "Invoice"
+    }
+  },
+  "_comment": "Add new prefixes here if SAP configuration changes. Codes array supports multiple prefixes per document type."
+}

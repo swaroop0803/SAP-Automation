@@ -50,10 +50,49 @@ export async function BulkPurchaseOrderCreation(page: Page, params?: POParameter
         'iframe[name="application-PurchaseOrder-create-iframe"]'
     );
 
-    // filling the supplier field in purchase order
-    console.log('Step 1: Waiting for Supplier field...');
+    // Wait for iframe to be ready
+    console.log('Step 1: Waiting for iframe to load...');
+    await page.waitForTimeout(2000); // Give iframe time to initialize
+
+    // filling the supplier field in purchase order with retry logic
+    console.log('Step 1: Waiting for Supplier field (with retry)...');
     const supplier = app.getByRole('textbox', { name: 'Supplier', exact: true });
-    await supplier.waitFor({ state: 'visible', timeout: 30000 });
+
+    // Retry logic for Supplier field
+    let supplierVisible = false;
+    const maxRetries = 3;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            console.log(`Step 1: Attempt ${attempt}/${maxRetries} to find Supplier field...`);
+            await supplier.waitFor({ state: 'visible', timeout: 20000 });
+            supplierVisible = true;
+            console.log(`Step 1: Supplier field found on attempt ${attempt}`);
+            break;
+        } catch (error) {
+            console.log(`Step 1: Attempt ${attempt} failed, Supplier field not visible`);
+            if (attempt < maxRetries) {
+                // Try refreshing the app or waiting
+                console.log('Step 1: Waiting 3 seconds before retry...');
+                await page.waitForTimeout(3000);
+
+                // Check if there's a loading indicator or popup blocking
+                try {
+                    // Try closing any popup dialogs
+                    const closeBtn = app.getByRole('button', { name: 'Close' });
+                    if (await closeBtn.isVisible({ timeout: 1000 })) {
+                        await closeBtn.click();
+                        console.log('Step 1: Closed a popup dialog');
+                        await page.waitForTimeout(1000);
+                    }
+                } catch {
+                    // No popup to close
+                }
+            } else {
+                throw new Error(`Supplier field not visible after ${maxRetries} attempts. SAP app may not have loaded correctly.`);
+            }
+        }
+    }
+
     await supplier.focus();
     console.log('Step 1: Supplier field focused');
 
@@ -107,7 +146,12 @@ export async function BulkPurchaseOrderCreation(page: Page, params?: POParameter
     await page.waitForTimeout(300);
 
     console.log('Step 6: Clicking Org. Data tab...');
-    await app.getByRole('tab', { name: 'Org. Data', exact: true }).click();
+    try {
+        await app.getByRole('tab', { name: 'Org. Data', exact: true }).click();
+    } catch {
+        await page.waitForTimeout(1000);
+        await app.getByRole('tab', { name: 'Org. Data', exact: true }).click();
+    }
 
     console.log('Step 7: Filling Purch. Org...');
     await fillTextboxInSapFrame(app, "Purch. Org.", p.purchaseOrg!);
@@ -136,48 +180,90 @@ export async function BulkPurchaseOrderCreation(page: Page, params?: POParameter
     await acol.click();
     await page.keyboard.type(p.accountAssignment!);
 
-    // Material
+    // Material (with fallback for SAP span elements)
     console.log('Step 10: Filling Material:', p.material);
     const materialcol = app.getByRole('textbox', { name: 'Material' }).first();
-    await materialcol.focus();
-    await materialcol.fill(p.material!);
+    try {
+        await materialcol.focus();
+        await materialcol.fill(p.material!);
+    } catch {
+        await materialcol.click();
+        await page.keyboard.press('Control+A');
+        await page.keyboard.type(p.material!);
+    }
 
-    // PO Quantity
+    // PO Quantity (with fallback for SAP span elements)
     console.log('Step 10: Filling PO Quantity:', p.quantity);
     const POQantity = app.getByRole('textbox', { name: 'PO Quantity' }).first();
-    await POQantity.focus();
-    await POQantity.fill(p.quantity!);
+    try {
+        await POQantity.focus();
+        await POQantity.fill(p.quantity!);
+    } catch {
+        await POQantity.click();
+        await page.keyboard.press('Control+A');
+        await page.keyboard.type(p.quantity!);
+    }
 
-    // Unit of measure (OUn)
+    // Unit of measure (OUn) (with fallback for SAP span elements)
     console.log('Step 10: Filling Unit:', p.unit);
     const OUhcol = app.getByRole('textbox', { name: 'OUn' }).first();
-    await OUhcol.focus();
-    await OUhcol.fill(p.unit!);
+    try {
+        await OUhcol.focus();
+        await OUhcol.fill(p.unit!);
+    } catch {
+        await OUhcol.click();
+        await page.keyboard.press('Control+A');
+        await page.keyboard.type(p.unit!);
+    }
 
-    // Delivery Date - use today's date
+    // Delivery Date - use today's date (with fallback for SAP span elements)
     const deliveryDate = getSapToday();
     console.log('Step 10: Filling Delivery Date:', deliveryDate);
     const DDcol = app.getByRole('textbox', { name: 'Deliv. Date' }).first();
-    await DDcol.focus();
-    await DDcol.fill(deliveryDate);
+    try {
+        await DDcol.focus();
+        await DDcol.fill(deliveryDate);
+    } catch {
+        await DDcol.click();
+        await page.keyboard.press('Control+A');
+        await page.keyboard.type(deliveryDate);
+    }
 
-    // Net Price
+    // Net Price (with fallback for SAP span elements)
     console.log('Step 10: Filling Net Price:', p.price);
     const NPcol = app.getByRole('textbox', { name: 'Net Price' }).first();
-    await NPcol.focus();
-    await NPcol.fill(p.price!);
+    try {
+        await NPcol.focus();
+        await NPcol.fill(p.price!);
+    } catch {
+        await NPcol.click();
+        await page.keyboard.press('Control+A');
+        await page.keyboard.type(p.price!);
+    }
 
-    // Plant
+    // Plant (with fallback for SAP span elements)
     console.log('Step 10: Filling Plant:', p.plant);
     const plantcol = app.getByRole('textbox', { name: 'Plant' }).first();
-    await plantcol.focus();
-    await plantcol.fill(p.plant!);
+    try {
+        await plantcol.focus();
+        await plantcol.fill(p.plant!);
+    } catch {
+        await plantcol.click();
+        await page.keyboard.press('Control+A');
+        await page.keyboard.type(p.plant!);
+    }
     await page.keyboard.press('Enter');
     console.log('Step 10: Item overview data filled');
 
-    // in the item overview
+    // in the item overview (with retry for tab click)
     console.log('Step 11: Clicking Account Assignment tab...');
-    await app.getByRole('tab', { name: 'Account Assignment', exact: true }).click();
+    try {
+        await app.getByRole('tab', { name: 'Account Assignment', exact: true }).click();
+    } catch {
+        // Retry after a short wait
+        await page.waitForTimeout(1000);
+        await app.getByRole('tab', { name: 'Account Assignment', exact: true }).click();
+    }
 
     // G/L account in item detail
     console.log('Step 12: Opening G/L Account value help (F4)...');
@@ -245,9 +331,18 @@ export async function BulkPurchaseOrderCreation(page: Page, params?: POParameter
     console.log('Step 17: Pressing Enter to confirm...');
     await page.keyboard.press('Enter');
     await page.keyboard.press('Enter');
-        const NPcol1 = app.getByRole('textbox', { name: 'Net Price' }).first();
-    await NPcol1.focus();
-    await NPcol1.fill(p.price!);
+
+    // Re-enter Net Price (with fallback for SAP span elements)
+    const NPcol1 = app.getByRole('textbox', { name: 'Net Price' }).first();
+    try {
+        await NPcol1.focus();
+        await NPcol1.fill(p.price!);
+    } catch {
+        await NPcol1.click();
+        await page.keyboard.press('Control+A');
+        await page.keyboard.type(p.price!);
+    }
+    console.log('Step 17: Net Price re-entered:', p.price);
     await page.keyboard.press('Enter');
 
     // saving

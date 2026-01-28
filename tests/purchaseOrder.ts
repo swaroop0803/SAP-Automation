@@ -199,10 +199,24 @@ try {
 await page.keyboard.press('Enter');
 await page.keyboard.press('Enter');
 
-// Re-enter Net Price (same approach as BulkPurchaseOrder.ts - using focus and fill)
+// Re-enter Net Price (OLD approach - commented out due to flaky span/input issue)
+// const NPcol1 = app.getByRole('textbox', { name: 'Net Price' }).first();
+// await NPcol1.focus();
+// await NPcol1.fill(price);
+// console.log('Net Price re-entered:', price);
+// await page.keyboard.press('Enter');
+
+// Re-enter Net Price (NEW approach - with fallback for SAP span elements)
 const NPcol1 = app.getByRole('textbox', { name: 'Net Price' }).first();
-await NPcol1.focus();
-await NPcol1.fill(price);
+try {
+    await NPcol1.focus();
+    await NPcol1.fill(price);
+} catch {
+    // Fallback: click + keyboard for span elements
+    await NPcol1.click();
+    await page.keyboard.press('Control+A');
+    await page.keyboard.type(price);
+}
 console.log('Net Price re-entered:', price);
 await page.keyboard.press('Enter');
 

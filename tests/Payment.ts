@@ -23,9 +23,56 @@ export async function Payment(page: Page, invoiceDocNumber: string): Promise<voi
     // fill run date
     await fillTextboxInSapFrame(crapp, "Run Date Required", Today);
 
-    // fill identification (unique for each run)
-    await fillTextboxInSapFrame(crapp, "Identification Required", paymentId);
-    console.log('Payment Identification:', paymentId);
+    // fill identification (unique for each run) - with retry if ID already used
+    const duplicateCheckMessages = [
+        /Parameters have been entered/i,
+        /Payment proposal has been/i,
+        /Payment run has been carried/i,
+    ];
+
+    let currentPaymentId = paymentId;
+    const maxIdRetries = 10;
+
+    for (let idAttempt = 1; idAttempt <= maxIdRetries; idAttempt++) {
+        // Fill the identification field
+        const identificationField = crapp.getByRole('textbox', { name: 'Identification Required' });
+        await identificationField.waitFor({ state: 'visible', timeout: 30000 });
+        await identificationField.clear();
+        await identificationField.fill(currentPaymentId);
+        await page.keyboard.press('Tab'); // Move focus to trigger validation
+        console.log(`Payment Identification (attempt ${idAttempt}): ${currentPaymentId}`);
+
+        // Wait for UI to update
+        await page.waitForTimeout(1500);
+
+        // Check if this payment ID was already used (messages already visible)
+        let isDuplicatePaymentId = false;
+        for (const message of duplicateCheckMessages) {
+            try {
+                const messageElement = crapp.getByText(message);
+                if (await messageElement.isVisible({ timeout: 1000 })) {
+                    isDuplicatePaymentId = true;
+                    console.log(`Duplicate payment ID detected: Message "${message}" is already visible`);
+                    break;
+                }
+            } catch {
+                // Message not visible, continue checking
+            }
+        }
+
+        if (!isDuplicatePaymentId) {
+            console.log(`Payment ID "${currentPaymentId}" is available, proceeding...`);
+            break;
+        }
+
+        if (idAttempt === maxIdRetries) {
+            throw new Error(`Could not find an available payment ID after ${maxIdRetries} attempts`);
+        }
+
+        // Generate a new payment ID and try again
+        console.log(`Payment ID "${currentPaymentId}" already used, generating new ID...`);
+        currentPaymentId = generateUniquePaymentId();
+    }
 
     // parameter tab
     const parameterTab = crapp
