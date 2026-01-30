@@ -613,8 +613,9 @@ async function parseCommandWithAIFallback(command: string): Promise<ParsedComman
 
           // Backup: extract price, quantity, material from command using regex if AI didn't return them
           if ((aiResult.action === 'purchase_order' || aiResult.action === 'procure_to_pay') && !envVars.PRICE) {
+            // Only match prices that are explicitly labeled - avoid matching numbers from material codes
             const priceMatch = command.match(/(?:price|cost|net\s*price)\s*(?:of|:|\s)*(\d+)/i) ||
-                               command.match(/(\d{3,})\s*(?:price|cost)?/i);
+                               command.match(/(\d+)\s*(?:price|cost)/i);
             if (priceMatch) {
               envVars.PRICE = priceMatch[1];
               console.log('📊 Extracted price from command using regex:', envVars.PRICE);

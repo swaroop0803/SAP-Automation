@@ -128,46 +128,119 @@ export async function SupplierInvoiceCreation(page: Page, poNumber: string, amou
 
     await page.waitForTimeout(2000);
 
-    // Capture Invoice Document Number from success message (same approach as Goods Receipt)
-    let invoiceDocNumber = '';
-    try {
-        // Find the element containing "Document no. X created"
-        const invoiceDocElement = crapp.locator('text=/Document no\\.\\s*\\d+\\s*created/i').first();
-        await invoiceDocElement.waitFor({ state: 'visible', timeout: 30000 });
+    // OLD APPROACH 1 - Capture Invoice Document Number from success message
+    // let invoiceDocNumber = '';
+    // try {
+    //     // Find the element containing "Document no. X created"
+    //     const invoiceDocElement = crapp.locator('text=/Document no\\.\\s*\\d+\\s*created/i').first();
+    //     await invoiceDocElement.waitFor({ state: 'visible', timeout: 30000 });
+    //
+    //     const elementText = await invoiceDocElement.textContent();
+    //     console.log('Found Invoice Document text:', elementText);
+    //
+    //     // Extract document number using regex
+    //     const match = elementText?.match(/Document no\.\s*(\d+)\s*created/i);
+    //     if (match && match[1]) {
+    //         invoiceDocNumber = match[1];
+    //         console.log('Invoice Document Number:', invoiceDocNumber);
+    //     } else {
+    //         console.log('Could not extract Invoice Document Number from:', elementText);
+    //     }
+    // } catch (error) {
+    //     console.log('Error capturing Invoice Document Number:', error);
+    // }
 
-        const elementText = await invoiceDocElement.textContent();
-        console.log('Found Invoice Document text:', elementText);
-
-        // Extract document number using regex
-        const match = elementText?.match(/Document no\.\s*(\d+)\s*created/i);
-        if (match && match[1]) {
-            invoiceDocNumber = match[1];
-            console.log('Invoice Document Number:', invoiceDocNumber);
-        } else {
-            console.log('Could not extract Invoice Document Number from:', elementText);
-        }
-    } catch (error) {
-        console.log('Error capturing Invoice Document Number:', error);
-    }
-
-    // OLD APPROACH - Click Other Invoice Document button and read from textbox
-    // // Click Other Invoice Document button
+    // OLD APPROACH 2 - Click Other Invoice Document button and read from textbox
     // await crapp.getByRole('button', { name: "Other Invoice Document" }).click();
     // await page.waitForTimeout(1000);
-    //
-    // // get invoice document number
     // const invoiceDocField = crapp.getByRole('textbox', {
     //     name: 'Invoice Document No. Required',
     // });
-    //
     // await invoiceDocField.waitFor({ state: 'visible', timeout: 30000 });
-    //
     // const invoiceDocNumber = await invoiceDocField.inputValue();
-    //
     // console.log('Invoice Document Number:', invoiceDocNumber);
-    //
     // await page.keyboard.press('Enter');
     // await page.waitForTimeout(1000);
+
+    // NEW APPROACH - Navigate to Follow-On Documents to get the correct Invoice Number
+    let invoiceDocNumber = '';
+    const maxRetries = 3;
+
+    // Step 1: Click "Other Invoice Document" button (with retry)
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            const otherInvoiceBtn = crapp.getByRole('button', { name: 'Other Invoice Document' });
+            await otherInvoiceBtn.waitFor({ state: 'visible', timeout: 10000 });
+            await otherInvoiceBtn.click();
+            console.log('Clicked Other Invoice Document button');
+            await page.waitForTimeout(1000);
+            break;
+        } catch (error) {
+            console.log(`Attempt ${attempt}/${maxRetries} failed for Other Invoice Document button`);
+            if (attempt === maxRetries) throw error;
+            await page.waitForTimeout(1000);
+        }
+    }
+
+    // Step 2: Click "Continue" button (with retry)
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            const continueBtn = crapp.getByRole('button', { name: 'Continue' });
+            await continueBtn.waitFor({ state: 'visible', timeout: 10000 });
+            await continueBtn.click();
+            console.log('Clicked Continue button');
+            await page.waitForTimeout(1000);
+            break;
+        } catch (error) {
+            console.log(`Attempt ${attempt}/${maxRetries} failed for Continue button`);
+            if (attempt === maxRetries) throw error;
+            await page.waitForTimeout(1000);
+        }
+    }
+
+    // Step 3: Click "Follow-On Documents" button (with retry)
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            const followOnDocsBtn = crapp.getByRole('button', { name: 'Follow-On Documents' });
+            await followOnDocsBtn.waitFor({ state: 'visible', timeout: 10000 });
+            await followOnDocsBtn.click();
+            console.log('Clicked Follow-On Documents button');
+            await page.waitForTimeout(1000);
+            break;
+        } catch (error) {
+            console.log(`Attempt ${attempt}/${maxRetries} failed for Follow-On Documents button`);
+            if (attempt === maxRetries) throw error;
+            await page.waitForTimeout(1000);
+        }
+    }
+
+    // Step 4: Get the Document Number from the textbox (with retry)
+    const docNumberField = crapp.getByRole('textbox', { name: 'Document Number' });
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            await docNumberField.waitFor({ state: 'visible', timeout: 10000 });
+            break;
+        } catch (error) {
+            console.log(`Attempt ${attempt}/${maxRetries} failed for Document Number field`);
+            if (attempt === maxRetries) throw error;
+            await page.waitForTimeout(1000);
+        }
+    }
+
+    // Wait for value to be populated
+    for (let i = 0; i < 10; i++) {
+        invoiceDocNumber = await docNumberField.inputValue();
+        if (invoiceDocNumber && invoiceDocNumber.trim() !== '') {
+            break;
+        }
+        await page.waitForTimeout(500);
+    }
+
+    console.log('Invoice Document Number:', invoiceDocNumber);
+
+    // Close the dialog
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(500);
 
     return invoiceDocNumber;
 }

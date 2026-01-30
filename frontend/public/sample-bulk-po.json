@@ -1,0 +1,47 @@
+[
+  {
+    "Supplier": "1",
+    "DocumentDate": "24.01.2026",
+    "PurchaseOrg": "ACS",
+    "PurchaseGroup": "ACS",
+    "CompanyCode": "ACS",
+    "AccountAssignment": "K",
+    "Material": "P-A2026-2",
+    "Quantity": "15",
+    "Unit": "EA",
+    "Price": "1699",
+    "Plant": "ACS",
+    "GLAccount": "610010",
+    "CostCenter": "ACSC110"
+  },
+  {
+    "Supplier": "1",
+    "DocumentDate": "23.01.2026",
+    "PurchaseOrg": "ACS",
+    "PurchaseGroup": "ACS",
+    "CompanyCode": "ACS",
+    "AccountAssignment": "K",
+    "Material": "P-A2026-3",
+    "Quantity": "34",
+    "Unit": "EA",
+    "Price": "4763",
+    "Plant": "ACS",
+    "GLAccount": "610010",
+    "CostCenter": "ACSC110"
+  },
+  {
+    "Supplier": "1",
+    "DocumentDate": "24.01.2026",
+    "PurchaseOrg": "ACS",
+    "PurchaseGroup": "ACS",
+    "CompanyCode": "ACS",
+    "AccountAssignment": "K",
+    "Material": "P-A2026-2",
+    "Quantity": "99",
+    "Unit": "EA",
+    "Price": "2541",
+    "Plant": "ACS",
+    "GLAccount": "610010",
+    "CostCenter": "ACSC110"
+  }
+]

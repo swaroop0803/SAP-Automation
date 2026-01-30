@@ -905,7 +905,12 @@ function App() {
 
             <div className="execute-buttons">
               <button onClick={executeCommand} disabled={executing || !command} className="execute-btn">
-                {executing ? '⏳ Executing...' : '▶️ Execute Test'}
+                {executing ? (
+                  <span className="processing-indicator-inline">
+                    <span className="hourglass-icon">⏳</span>
+                    <span className="processing-text">Processing...</span>
+                  </span>
+                ) : '▶️ Execute Test'}
               </button>
               {executing && (
                 <button

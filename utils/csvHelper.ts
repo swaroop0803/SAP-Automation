@@ -1,9 +1,10 @@
 import fs from 'fs';
 import path from 'path';
+import * as XLSX from 'xlsx';
 
 /**
- * CSV Helper for reading bulk upload files
- * Supports CSV format with headers
+ * File Helper for reading bulk upload files
+ * Supports CSV, JSON, XLSX, and XLS formats
  */
 
 export interface BulkPORecord {
@@ -23,6 +24,89 @@ export interface BulkPORecord {
 }
 
 /**
+ * Normalize row object keys to lowercase without spaces
+ */
+function normalizeRow(row: any): any {
+  const normalized: any = {};
+  for (const key of Object.keys(row)) {
+    const normalizedKey = key.toLowerCase().replace(/\s+/g, '');
+    normalized[normalizedKey] = row[key];
+  }
+  return normalized;
+}
+
+/**
+ * Map a raw row object to BulkPORecord with flexible column name matching
+ */
+function mapToRecord(row: any): BulkPORecord {
+  const r = normalizeRow(row);
+
+  return {
+    supplier: String(r.supplier || r.supplierno || r.vendor || ''),
+    documentDate: String(r.documentdate || r.date || r.docdate || ''),
+    purchaseOrg: String(r.purchaseorg || r.purchorg || r.porg || 'ACS'),
+    purchaseGroup: String(r.purchasegroup || r.purchgroup || r.pgroup || 'ACS'),
+    companyCode: String(r.companycode || r.company || 'ACS'),
+    accountAssignment: String(r.accountassignment || r.acctassign || r.aa || 'K'),
+    material: String(r.material || r.mat || 'P-A2026-3'),
+    quantity: String(r.quantity || r.poquantity || r.qty || '1'),
+    unit: String(r.unit || r.unitofmeasure || r.uom || 'EA'),
+    price: String(r.price || r.netprice || '1000'),
+    plant: String(r.plant || 'ACS'),
+    glAccount: String(r.glaccount || r.gl || '610010'),
+    costCenter: String(r.costcenter || r.cc || 'ACSC110')
+  };
+}
+
+/**
+ * Parse JSON content into array of records
+ */
+function parseJSON(content: string): BulkPORecord[] {
+  try {
+    const data = JSON.parse(content);
+    const records: BulkPORecord[] = [];
+
+    // Handle both array and single object
+    const items = Array.isArray(data) ? data : [data];
+
+    for (const item of items) {
+      records.push(mapToRecord(item));
+    }
+
+    console.log(`Parsed ${records.length} records from JSON`);
+    return records;
+  } catch (error) {
+    console.error('Error parsing JSON:', error);
+    throw new Error('Invalid JSON format');
+  }
+}
+
+/**
+ * Parse Excel file (XLSX/XLS) into array of records
+ */
+function parseExcel(filePath: string): BulkPORecord[] {
+  try {
+    const workbook = XLSX.readFile(filePath);
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+
+    // Convert sheet to JSON
+    const data = XLSX.utils.sheet_to_json(worksheet);
+    const records: BulkPORecord[] = [];
+
+    for (const row of data) {
+      records.push(mapToRecord(row));
+    }
+
+    console.log(`Parsed ${records.length} records from Excel (${sheetName})`);
+    return records;
+  } catch (error) {
+    console.error('Error parsing Excel file:', error);
+    throw error;
+  }
+}
+
+/**
  * Parse CSV content into array of records
  */
 function parseCSV(content: string): BulkPORecord[] {
@@ -32,11 +116,8 @@ function parseCSV(content: string): BulkPORecord[] {
     return [];
   }
 
-  // Parse headers (lowercase, remove spaces)
-  const headers = lines[0].split(',').map(h =>
-    h.trim().toLowerCase().replace(/\s+/g, '')
-  );
-
+  // Parse headers
+  const headers = lines[0].split(',').map(h => h.trim());
   console.log('CSV Headers:', headers);
 
   // Parse data rows
@@ -50,24 +131,8 @@ function parseCSV(content: string): BulkPORecord[] {
       row[header] = values[index] || '';
     });
 
-    // Map to BulkPORecord with flexible column name matching
-    const record: BulkPORecord = {
-      supplier: row.supplier || row.supplierno || row.vendor || '',
-      documentDate: row.documentdate || row.date || row.docdate || '',
-      purchaseOrg: row.purchaseorg || row.purchorg || row.porg || 'ACS',
-      purchaseGroup: row.purchasegroup || row.purchgroup || row.pgroup || 'ACS',
-      companyCode: row.companycode || row.company || row.cc || 'ACS',
-      accountAssignment: row.accountassignment || row.acctassign || row.aa || 'K',
-      material: row.material || row.mat || 'P-A2026-3',
-      quantity: row.quantity || row.poquantity || row.qty || '1',
-      unit: row.unit || row.unitofmeasure || row.uom || 'EA',
-      price: row.price || row.netprice || '1000',
-      plant: row.plant || 'ACS',
-      glAccount: row.glaccount || row.gl || '610010',
-      costCenter: row.costcenter || row.cc || 'ACSC110'
-    };
-
-    records.push(record);
+    // Use common mapToRecord for consistent field mapping
+    records.push(mapToRecord(row));
   }
 
   console.log(`Parsed ${records.length} records from CSV`);
@@ -75,26 +140,54 @@ function parseCSV(content: string): BulkPORecord[] {
 }
 
 /**
- * Read CSV file and return array of BulkPORecord
+ * Read bulk PO file and return array of BulkPORecord
+ * Supports CSV, JSON, XLSX, and XLS formats
  */
-export function readBulkPOCSV(csvPath: string): BulkPORecord[] {
+export function readBulkPOCSV(filePath: string): BulkPORecord[] {
   try {
-    console.log(`Reading CSV from: ${csvPath}`);
+    const resolvedPath = path.resolve(filePath);
+    const ext = path.extname(resolvedPath).toLowerCase();
 
-    const resolvedPath = path.resolve(csvPath);
-    console.log(`Resolved path: ${resolvedPath}`);
+    console.log(`Reading bulk PO file from: ${resolvedPath}`);
+    console.log(`Detected file format: ${ext}`);
 
     if (!fs.existsSync(resolvedPath)) {
-      throw new Error(`CSV file not found: ${resolvedPath}`);
+      throw new Error(`File not found: ${resolvedPath}`);
     }
 
-    const content = fs.readFileSync(resolvedPath, 'utf-8');
-    const records = parseCSV(content);
+    let records: BulkPORecord[] = [];
 
-    console.log(`✓ Successfully read ${records.length} rows from CSV`);
+    switch (ext) {
+      case '.json':
+        console.log('Parsing as JSON...');
+        const jsonContent = fs.readFileSync(resolvedPath, 'utf-8');
+        records = parseJSON(jsonContent);
+        break;
+
+      case '.xlsx':
+      case '.xls':
+        console.log('Parsing as Excel...');
+        records = parseExcel(resolvedPath);
+        break;
+
+      case '.csv':
+      default:
+        console.log('Parsing as CSV...');
+        const csvContent = fs.readFileSync(resolvedPath, 'utf-8');
+        records = parseCSV(csvContent);
+        break;
+    }
+
+    console.log(`✓ Successfully read ${records.length} rows from ${ext || 'file'}`);
+
+    // Log first record for debugging
+    if (records.length > 0) {
+      console.log('First record:', JSON.stringify(records[0], null, 2));
+    }
+
     return records;
   } catch (error) {
-    console.error('Error reading CSV file:', error);
+    console.error('Error reading bulk PO file:', error);
     throw error;
   }
 }

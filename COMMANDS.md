@@ -455,6 +455,53 @@ Purchase Order ──────> Goods Receipt ──────> Supplier In
 
 ---
 
+## 6. Bulk Purchase Order Upload
+
+Upload an Excel, CSV, or JSON file to create multiple Purchase Orders at once. Available via UI or API.
+
+### Supported File Formats
+- Excel (`.xlsx`, `.xls`)
+- CSV (`.csv`)
+- JSON (`.json`)
+
+### Required Fields
+| Field | Description | Default |
+|-------|-------------|---------|
+| Material | Material code | P-A2026-3 |
+| Quantity | PO Quantity | 1 |
+| Price | Net Price | 1000 |
+
+### Optional Fields
+| Field | Description | Default |
+|-------|-------------|---------|
+| Document Date | Document date | Today |
+| Purchase Org | Purchase Organization | ACS |
+| Purchase Group | Purchase Group | ACS |
+| Company Code | Company Code | ACS |
+| Account Assignment | Account Assignment | K |
+| Unit | Unit of Measure | EA |
+| Plant | Plant | ACS |
+| GL Account | G/L Account | 610010 |
+| Cost Center | Cost Center | ACSC110 |
+
+### Example CSV Format
+```csv
+Material,Quantity,Price
+P-A2026-3,5,3000
+P-A2026-4,10,2000
+P-A2026-5,3,5000
+```
+
+### Example JSON Format
+```json
+[
+  {"material": "P-A2026-3", "quantity": "5", "price": "3000"},
+  {"material": "P-A2026-4", "quantity": "10", "price": "2000"}
+]
+```
+
+---
+
 ## Running Tests via CLI (Windows PowerShell)
 
 ```powershell
@@ -467,16 +514,22 @@ $env:PRICE="3000"; $env:QUANTITY="5"; $env:MATERIAL="P-A2026-3"; npx playwright 
 # Goods Receipt
 $env:PO_NUMBER="4500000130"; npx playwright test tests/flows/GoodsReceiptFlow.spec.ts --headed
 
-# Supplier Invoice (amount auto-calculated)
+# Supplier Invoice (amount auto-calculated from poDetails.csv)
 $env:PO_NUMBER="4500000130"; npx playwright test tests/flows/SupplierInvoiceFlow.spec.ts --headed
+
+# Supplier Invoice (explicit amount)
+$env:PO_NUMBER="4500000130"; $env:AMOUNT="5000"; npx playwright test tests/flows/SupplierInvoiceFlow.spec.ts --headed
 
 # Payment
 $env:INVOICE_NUMBER="5105600813"; npx playwright test tests/flows/PaymentFlow.spec.ts --headed
 
-# Full P2P Flow
+# Full P2P Flow (default values)
 npx playwright test tests/procureToPay.spec.ts --headed
 
-# Bulk PO Creation
+# Full P2P Flow with parameters
+$env:PRICE="3000"; $env:QUANTITY="5"; $env:MATERIAL="P-A2026-3"; npx playwright test tests/procureToPay.spec.ts --headed
+
+# Bulk PO Creation from file
 $env:BULK_CSV_PATH="C:\path\to\file.csv"; npx playwright test tests/flows/BulkPOFlow.spec.ts --headed
 ```
 
@@ -501,10 +554,15 @@ curl -X POST http://localhost:3001/api/execute \
   -H "Content-Type: application/json" \
   -d '{"command": "Create goods receipt for PO 4500000130"}'
 
-# Supplier Invoice
+# Supplier Invoice (auto-calculated amount)
 curl -X POST http://localhost:3001/api/execute \
   -H "Content-Type: application/json" \
   -d '{"command": "Create invoice for PO 4500000130"}'
+
+# Supplier Invoice (explicit amount)
+curl -X POST http://localhost:3001/api/execute \
+  -H "Content-Type: application/json" \
+  -d '{"command": "Create invoice for PO 4500000130 amount 5000"}'
 
 # Payment
 curl -X POST http://localhost:3001/api/execute \
@@ -515,20 +573,52 @@ curl -X POST http://localhost:3001/api/execute \
 curl -X POST http://localhost:3001/api/execute \
   -H "Content-Type: application/json" \
   -d '{"command": "Run P2P"}'
+
+# Full P2P with parameters
+curl -X POST http://localhost:3001/api/execute \
+  -H "Content-Type: application/json" \
+  -d '{"command": "Run P2P with price 3000 quantity 5 material P-A2026-3"}'
 ```
 
-### Get PO Details (for invoice calculation)
+### Cancel Running Test
 ```bash
+curl -X POST http://localhost:3001/api/cancel
+```
+
+### Bulk Upload (Create Multiple POs)
+```bash
+# Upload file
+curl -X POST http://localhost:3001/api/bulk-upload \
+  -F "file=@/path/to/orders.xlsx"
+
+# Check job status
+curl http://localhost:3001/api/bulk-status/bulk-1234567890
+
+# Cancel bulk job
+curl -X POST http://localhost:3001/api/bulk-cancel
+
+# List all bulk jobs
+curl http://localhost:3001/api/bulk-jobs
+```
+
+### PO Information
+```bash
+# Get PO details (qty, price, calculated invoice amount)
 curl http://localhost:3001/api/po-details/4500000130
+
+# Check PO status (what flows completed)
+curl http://localhost:3001/api/po-status/4500000130
+
+# List all PO numbers
+curl http://localhost:3001/api/po-list
 ```
 
-### Get Available Commands
+### Utility Endpoints
 ```bash
+# Get available commands
 curl http://localhost:3001/api/commands
-```
 
-### Health Check
-```bash
+# Health check
 curl http://localhost:3001/api/health
 ```
 
@@ -576,4 +666,4 @@ type utils\pOnumberinvoice.csv
 
 ---
 
-**Last Updated**: 2026-01-26
+**Last Updated**: 2026-01-29

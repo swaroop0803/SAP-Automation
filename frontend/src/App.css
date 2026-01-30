@@ -704,6 +704,24 @@ table tbody tr:hover {
   50% { opacity: 0.5; }
 }
 
+/* Inline processing indicator for buttons */
+.processing-indicator-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.processing-indicator-inline .hourglass-icon {
+  font-size: 18px;
+  animation: rotateHourglass 1.5s ease-in-out infinite;
+}
+
+.processing-indicator-inline .processing-text {
+  font-size: 14px;
+  color: white;
+  animation: pulseText 1.5s ease-in-out infinite;
+}
+
 .bulk-stats {
   display: flex;
   gap: 20px;
