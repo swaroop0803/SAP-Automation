@@ -577,23 +577,23 @@ async function parseCommandWithAIFallback(command: string): Promise<ParsedComman
         // Map AI result to ParsedCommand
         const actionMap: Record<string, { testFile: string; description: string }> = {
           purchase_order: {
-            testFile: 'tests/flows/PurchaseOrderFlow.spec.ts',
+            testFile: 'tests/ui/PurchaseOrderFlow.spec.ts',
             description: 'Creating Purchase Order (AI-parsed)'
           },
           goods_receipt: {
-            testFile: 'tests/flows/GoodsReceiptFlow.spec.ts',
+            testFile: 'tests/ui/GoodsReceiptFlow.spec.ts',
             description: `Posting Goods Receipt for PO ${aiResult.poNumber} (AI-parsed)`
           },
           supplier_invoice: {
-            testFile: 'tests/flows/SupplierInvoiceFlow.spec.ts',
+            testFile: 'tests/ui/SupplierInvoiceFlow.spec.ts',
             description: `Creating Supplier Invoice for PO ${aiResult.poNumber} (AI-parsed)`
           },
           payment: {
-            testFile: 'tests/flows/PaymentFlow.spec.ts',
+            testFile: 'tests/ui/PaymentFlow.spec.ts',
             description: `Processing Payment for Invoice ${aiResult.invoiceNumber} (AI-parsed)`
           },
           procure_to_pay: {
-            testFile: 'tests/procureToPay.spec.ts',
+            testFile: 'tests/ui/procureToPay.spec.ts',
             description: 'Running complete Procure-to-Pay flow (AI-parsed)'
           }
         };
@@ -757,7 +757,7 @@ function parseCommandPatternBased(command: string): ParsedCommand {
 
     return {
       action: 'procure_to_pay',
-      testFile: 'tests/procureToPay.spec.ts',
+      testFile: 'tests/ui/procureToPay.spec.ts',
       envVars,
       description: desc
     };
@@ -817,7 +817,7 @@ function parseCommandPatternBased(command: string): ParsedCommand {
 
     return {
       action: 'purchase_order',
-      testFile: 'tests/flows/PurchaseOrderFlow.spec.ts',
+      testFile: 'tests/ui/PurchaseOrderFlow.spec.ts',
       envVars,
       description: `Creating Purchase Order${envVars.PRICE ? ` with price ${envVars.PRICE}` : ''}`
     };
@@ -896,7 +896,7 @@ function parseCommandPatternBased(command: string): ParsedCommand {
 
     return {
       action: 'supplier_invoice',
-      testFile: 'tests/flows/SupplierInvoiceFlow.spec.ts',
+      testFile: 'tests/ui/SupplierInvoiceFlow.spec.ts',
       envVars,
       description: `Creating Supplier Invoice for PO ${poNumber}${envVars.AMOUNT ? ` with explicit amount ${envVars.AMOUNT}` : ' (amount auto-calculated)'}`
     };
@@ -957,7 +957,7 @@ function parseCommandPatternBased(command: string): ParsedCommand {
     }
     return {
       action: 'goods_receipt',
-      testFile: 'tests/flows/GoodsReceiptFlow.spec.ts',
+      testFile: 'tests/ui/GoodsReceiptFlow.spec.ts',
       envVars: { PO_NUMBER: poNumber },
       description: `Posting Goods Receipt for PO ${poNumber}`
     };
@@ -1017,7 +1017,7 @@ function parseCommandPatternBased(command: string): ParsedCommand {
     }
     return {
       action: 'payment',
-      testFile: 'tests/flows/PaymentFlow.spec.ts',
+      testFile: 'tests/ui/PaymentFlow.spec.ts',
       envVars: { INVOICE_NUMBER: invoiceNumber },
       description: `Processing Payment for Invoice ${invoiceNumber}`
     };
@@ -1807,7 +1807,7 @@ app.post('/api/bulk-upload', upload.single('file'), async (req, res) => {
       console.log('Running bulk PO test with CSV:', savedFilePath);
 
       // Use spawn for real-time output
-      const testProcess = spawn('npx', ['playwright', 'test', 'tests/flows/BulkPOFlow.spec.ts'], {
+      const testProcess = spawn('npx', ['playwright', 'test', 'tests/ui/BulkPOFlow.spec.ts'], {
         cwd: projectRoot,
         shell: true,
         env: {

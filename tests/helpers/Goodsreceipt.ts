@@ -1,6 +1,6 @@
 import { Page } from "@playwright/test";
-import { openFioriApp } from "../utils/Searching";
-import { fillTextboxInSapFrame, getActiveSapFrame } from "../utils/sapUtils";
+import { openFioriApp } from "../../utils/Searching";
+import { fillTextboxInSapFrame, getActiveSapFrame } from "../../utils/sapUtils";
 
 export async function GoodsReceiptCreation(page: Page, poNumber: string): Promise<string> {
 

@@ -1,6 +1,7 @@
 import { test } from '@playwright/test';
-import { Login } from '../Login';
-import { SupplierInvoiceCreation } from '../SupplierInvoice';
+import { Login } from '../helpers/Login';
+import { SupplierInvoiceCreation } from '../helpers/SupplierInvoice';
+import { Logout } from '../helpers/Logout';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -34,6 +35,11 @@ function calculateAmountFromCSV(poNumber: string): string | null {
 
 // PO Number will be passed from command line - Amount is auto-calculated from poDetails.csv
 // Run with: PO_NUMBER=4500001075 npx playwright test tests/flows/SupplierInvoiceFlow.spec.ts
+
+// Ensure SAP session is closed even if test fails
+test.afterEach(async ({ page }) => {
+    try { await Logout(page); } catch { console.log('Logout skipped (session may already be closed)'); }
+});
 
 test('Create Supplier Invoice for existing PO', async ({ page }) => {
     // Get PO Number from environment variable
@@ -71,4 +77,5 @@ test('Create Supplier Invoice for existing PO', async ({ page }) => {
     const poCsvLine = `${poNumber},${invoiceDocNumber},${timestamp}\n`;
     fs.appendFileSync(poCsvPath, poCsvLine);
     console.log(`PO ${poNumber} appended to pOnumberinvoice.csv`);
+
 });

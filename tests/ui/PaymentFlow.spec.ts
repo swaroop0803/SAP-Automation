@@ -1,9 +1,15 @@
 import { test } from '@playwright/test';
-import { Login } from '../Login';
-import { Payment } from '../Payment';
+import { Login } from '../helpers/Login';
+import { Payment } from '../helpers/Payment';
+import { Logout } from '../helpers/Logout';
 
 // Invoice Number will be passed from command line or environment variable
 // Run with: INVOICE_NUMBER=5105600001 npx playwright test src/flows/PaymentFlow.spec.ts
+
+// Ensure SAP session is closed even if test fails
+test.afterEach(async ({ page }) => {
+    try { await Logout(page); } catch { console.log('Logout skipped (session may already be closed)'); }
+});
 
 test('Process Payment for existing Invoice', async ({ page }) => {
     // Get Invoice Number from environment variable
@@ -21,4 +27,5 @@ test('Process Payment for existing Invoice', async ({ page }) => {
     // Step 2: Process Payment using the provided Invoice Number
     await Payment(page, invoiceDocNumber);
     console.log('Payment Completed for Invoice:', invoiceDocNumber);
+
 });

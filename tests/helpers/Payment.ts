@@ -1,6 +1,6 @@
 import { Page, expect } from "@playwright/test";
-import { clickSapButton, clickSapTab, fillSapTextbox, fillTextboxInSapFrame, getActiveSapFrame, getSapToday, getSapTomorrow } from "../utils/sapUtils";
-import { openFioriApp } from "../utils/Searching";
+import { clickSapButton, clickSapTab, fillSapTextbox, fillTextboxInSapFrame, getActiveSapFrame, getSapToday, getSapTomorrow } from "../../utils/sapUtils";
+import { openFioriApp } from "../../utils/Searching";
 
 // Generate unique 4-character identification for payment run
 function generateUniquePaymentId(): string {

@@ -1,10 +1,16 @@
 import { test } from '@playwright/test';
-import { Login } from '../Login';
-import { Purchaseordercreation } from '../purchaseOrder';
+import { Login } from '../helpers/Login';
+import { Purchaseordercreation } from '../helpers/purchaseOrder';
+import { Logout } from '../helpers/Logout';
 import * as fs from 'fs';
 import * as path from 'path';
 
 // Run with custom params: $env:MATERIAL="P-A2026-3"; $env:QUANTITY="5"; $env:PRICE="3400"; npx playwright test tests/flows/PurchaseOrderFlow.spec.ts --headed
+
+// Ensure SAP session is closed even if test fails
+test.afterEach(async ({ page }) => {
+    try { await Logout(page); } catch { console.log('Logout skipped (session may already be closed)'); }
+});
 
 test('Create Purchase Order and Save PO Number', async ({ page }) => {
     // Get parameters from environment variables (optional)
@@ -38,4 +44,5 @@ test('Create Purchase Order and Save PO Number', async ({ page }) => {
     const poDetailsLine = `${poNumber},${actualMaterial},${actualQuantity},${actualPrice},${timestamp}\n`;
     fs.appendFileSync(poDetailsPath, poDetailsLine);
     console.log(`PO Details saved: Material=${actualMaterial}, Qty=${actualQuantity}, Price=${actualPrice}`);
+
 });

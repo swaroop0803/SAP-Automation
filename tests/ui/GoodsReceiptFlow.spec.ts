@@ -1,11 +1,17 @@
 import { test } from '@playwright/test';
-import { Login } from '../Login';
-import { GoodsReceiptCreation } from '../Goodsreceipt';
+import { Login } from '../helpers/Login';
+import { GoodsReceiptCreation } from '../helpers/Goodsreceipt';
+import { Logout } from '../helpers/Logout';
 import * as fs from 'fs';
 import * as path from 'path';
 
 // PO Number will be passed from command line or environment variable
 // Run with: PO_NUMBER=4500001075 npx playwright test tests/flows/GoodsReceiptFlow.spec.ts
+
+// Ensure SAP session is closed even if test fails
+test.afterEach(async ({ page }) => {
+    try { await Logout(page); } catch { console.log('Logout skipped (session may already be closed)'); }
+});
 
 test('Create Goods Receipt for existing PO', async ({ page }) => {
     // Get PO Number from environment variable
@@ -30,4 +36,5 @@ test('Create Goods Receipt for existing PO', async ({ page }) => {
     const csvLine = `${poNumber},${timestamp}\n`;
     fs.appendFileSync(csvPath, csvLine);
     console.log(`PO ${poNumber} appended to pOnumbergoods.csv`);
+
 });

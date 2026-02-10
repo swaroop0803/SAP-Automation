@@ -1,7 +1,7 @@
 
 import { Page } from "@playwright/test";
-import { openFioriApp } from "../utils/Searching";
-import { fillTextboxInSapFrame, getSapToday } from "../utils/sapUtils";
+import { openFioriApp } from "../../utils/Searching";
+import { fillTextboxInSapFrame, getSapToday } from "../../utils/sapUtils";
 
 // import { test } from '@playwright/test';
 // import { Login } from './Login';
@@ -22,20 +22,57 @@ import { fillTextboxInSapFrame, getSapToday } from "../utils/sapUtils";
 
 
 
+// ============================================================
+// DEFAULT VALUES - Change these values as needed
+// ============================================================
+const DEFAULTS = {
+    SUPPLIER: '1',              // Supplier number
+    MATERIAL: 'P-A2026-3',      // Material code
+    QUANTITY: '1',              // PO Quantity
+    PRICE: '1000',              // Net Price
+    COMPANY_CODE: 'acs',        // Company Code
+    PURCH_ORG: 'acs',           // Purchasing Organization
+    PURCH_GROUP: 'acs',         // Purchasing Group
+    PLANT: 'acs',               // Plant
+    ACCOUNT_ASSIGNMENT: 'K',    // Account Assignment Category (K = Cost Center)
+    ORDER_UNIT: 'EA',           // Order Unit
+    GL_ACCOUNT: '610010',       // G/L Account
+    CHART_OF_ACCOUNTS: 'acs',   // Chart of Accounts
+};
+// ============================================================
+
 // Parameters interface for Purchase Order
 export interface POParams {
+    supplier?: string;
     material?: string;
     quantity?: string;
     price?: string;
+    companyCode?: string;
+    purchOrg?: string;
+    purchGroup?: string;
+    plant?: string;
+    accountAssignment?: string;
+    orderUnit?: string;
+    glAccount?: string;
+    chartOfAccounts?: string;
 }
 
 export async function Purchaseordercreation(page: Page, params?: POParams): Promise<string> {
     // Use provided params or defaults
-    const material = params?.material || 'P-A2026-3';
-    const quantity = params?.quantity || '1';
-    const price = params?.price || '1000';
+    const supplier = params?.supplier || DEFAULTS.SUPPLIER;
+    const material = params?.material || DEFAULTS.MATERIAL;
+    const quantity = params?.quantity || DEFAULTS.QUANTITY;
+    const price = params?.price || DEFAULTS.PRICE;
+    const companyCode = params?.companyCode || DEFAULTS.COMPANY_CODE;
+    const purchOrg = params?.purchOrg || DEFAULTS.PURCH_ORG;
+    const purchGroup = params?.purchGroup || DEFAULTS.PURCH_GROUP;
+    const plant = params?.plant || DEFAULTS.PLANT;
+    const accountAssignment = params?.accountAssignment || DEFAULTS.ACCOUNT_ASSIGNMENT;
+    const orderUnit = params?.orderUnit || DEFAULTS.ORDER_UNIT;
+    const glAccount = params?.glAccount || DEFAULTS.GL_ACCOUNT;
+    const chartOfAccounts = params?.chartOfAccounts || DEFAULTS.CHART_OF_ACCOUNTS;
 
-    console.log(`Creating PO with: Material=${material}, Quantity=${quantity}, Price=${price}`);
+    console.log(`Creating PO with: Supplier=${supplier}, Material=${material}, Quantity=${quantity}, Price=${price}`);
 // navigating to purchase order
 await openFioriApp(page,"create purchase order advanced","Create Purchase Order Advanced Tile")
 
@@ -45,31 +82,30 @@ await openFioriApp(page,"create purchase order advanced","Create Purchase Order 
 );
 
 // filling the supplier field in purchase order
-  const supplier = app.getByRole('textbox', { name: 'Supplier', exact: true });
+const supplierField = app.getByRole('textbox', { name: 'Supplier', exact: true });
 
-await supplier.waitFor({ state: 'visible', timeout: 30000 });
-await supplier.focus();
+await supplierField.waitFor({ state: 'visible', timeout: 30000 });
+await supplierField.focus();
 
-// Open value help (SAP-correct)
-await page.keyboard.press('F4');
-
-
-//filling the company code  in  supplier
-await  fillTextboxInSapFrame(app,"Company Code","acs")
-
-
+// Fill supplier directly with provided value (default: '1')
+console.log('Filling Supplier directly with:', supplier);
+await supplierField.fill(supplier);
 await page.keyboard.press('Enter');
+await page.waitForTimeout(500);
+console.log('Supplier filled directly');
 
-// Click OK Emphasized button if visible
-try {
-    const okButton = app.getByRole('button', { name: 'OK  Emphasized' });
-    await okButton.waitFor({ state: 'visible', timeout: 2000 });
-    await okButton.click();
-    console.log('OK Emphasized button clicked');
-} catch {
-    // Button not visible, continue
-    await page.keyboard.press('Enter');
-}
+// F4 value help logic - COMMENTED OUT (using direct fill instead)
+// await page.keyboard.press('F4');
+// await fillTextboxInSapFrame(app,"Company Code","acs")
+// await page.keyboard.press('Enter');
+// try {
+//     const okButton = app.getByRole('button', { name: 'OK  Emphasized' });
+//     await okButton.waitFor({ state: 'visible', timeout: 2000 });
+//     await okButton.click();
+//     console.log('OK Emphasized button clicked');
+// } catch {
+//     await page.keyboard.press('Enter');
+// }
 
 // Fill Document Date with today's date
 const Today = getSapToday();
@@ -85,14 +121,14 @@ await page.keyboard.press('Control+F2'); // to open header part
 await app.getByRole('tab', { name: 'Org. Data', exact: true }).click(); // to open the org data tab if nott opened
 
 
-await  fillTextboxInSapFrame(app,"Purch. Org.","acs")
-await page.keyboard.press('Enter'); 
-
-
-await fillTextboxInSapFrame(app,"Purch. Group","acs")
+await  fillTextboxInSapFrame(app,"Purch. Org.", purchOrg)
 await page.keyboard.press('Enter');
 
-await fillTextboxInSapFrame(app,"Company Code","acs")
+
+await fillTextboxInSapFrame(app,"Purch. Group", purchGroup)
+await page.keyboard.press('Enter');
+
+await fillTextboxInSapFrame(app,"Company Code", companyCode)
 await page.keyboard.press('Enter');
 
 await page.keyboard.press('Control+F5'); // to close header part
@@ -104,9 +140,11 @@ await page.keyboard.press('Control+F3'); // to open the item overview
 
 
 
- const acol = await app.getByRole('textbox', { name: 'A' }).nth(2).click();
-// A = K
-await page.keyboard.type('K');
+ const acol = await app.getByRole('textbox', { name: 'A' }).nth(2)
+// Account Assignment Category
+await acol.focus()
+
+await page.keyboard.type(accountAssignment);
 
 
 // Material
@@ -121,10 +159,10 @@ await POQantity.focus()
 await POQantity.fill(quantity);
 
 
-// OUn = EA
+// Order Unit
 const OUhcol = await app.getByRole('textbox', { name: 'OUn' }).first()
 await OUhcol.focus()
-await OUhcol.fill('EA');
+await OUhcol.fill(orderUnit);
 
 // Delivery Date - not needed, automatically set to today's date
 // const DDcol = await app.getByRole('textbox', { name: 'Deliv. Date' }).first()
@@ -138,10 +176,10 @@ await NPcol.focus()
 await NPcol.fill(price);
 
 
-// Plant = acs
+// Plant
 const plantcol = await app.getByRole('textbox', { name: 'Plant' }).first()
 await plantcol.focus()
-await plantcol.fill('acs');
+await plantcol.fill(plant);
 await page.keyboard.press('Enter');
 // await page.keyboard.press('Enter');
 
@@ -154,15 +192,15 @@ await GLaccount.waitFor({ state: 'visible', timeout: 30000 });
 await GLaccount.focus();
 await page.keyboard.press('F4');
 
-const chartOfAccounts = app.getByRole('textbox', { name: 'Chart of Accounts' });
-await chartOfAccounts.waitFor({ state: 'visible', timeout: 30000 });
-await chartOfAccounts.focus();
-await chartOfAccounts.fill("acs");
+const chartOfAccountsField = app.getByRole('textbox', { name: 'Chart of Accounts' });
+await chartOfAccountsField.waitFor({ state: 'visible', timeout: 30000 });
+await chartOfAccountsField.focus();
+await chartOfAccountsField.fill(chartOfAccounts);
 await page.keyboard.press('Enter');
 
 const findInput = app.getByRole('textbox', { name: 'Find expression' });
 await findInput.waitFor({ state: 'visible', timeout: 30000 });
-await findInput.fill('610010');
+await findInput.fill(glAccount);
 await page.keyboard.press('Enter');
 
 // Click OK Emphasized button after G/L Account search
@@ -182,7 +220,7 @@ await costCenter.focus();
 await page.keyboard.press('F4');
 
 // filling company code in cost center f4 menu
-await fillTextboxInSapFrame(app,"Company Code","acs")
+await fillTextboxInSapFrame(app,"Company Code", companyCode)
 
 await page.keyboard.press('Enter');
 
@@ -231,7 +269,11 @@ await saveDialogBtn.waitFor({ state: 'visible', timeout: 30000 });
 await saveDialogBtn.click();
 console.log('Save dialog button clicked');
 
-await page.waitForTimeout(1000);
+// Wait for success message to confirm PO is saved
+console.log('Waiting for PO creation success message...');
+const successMsg = app.locator('text=/Standard PO created under the number \\d+/').first();
+await successMsg.waitFor({ state: 'visible', timeout: 30000 });
+console.log('Success message visible - PO saved successfully');
 
 // clicking on other Purchase Order button to get the PO number
 const otherpurchaseorder = app.getByRole('button', { name: 'Other Purchase Order' });

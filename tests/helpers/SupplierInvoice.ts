@@ -1,6 +1,6 @@
 import { Page } from "@playwright/test";
-import { openFioriApp } from "../utils/Searching";
-import { fillSapTextbox, fillTextboxInSapFrame, getActiveSapFrame, getSapToday } from "../utils/sapUtils";
+import { openFioriApp } from "../../utils/Searching";
+import { fillSapTextbox, fillTextboxInSapFrame, getActiveSapFrame, getSapToday } from "../../utils/sapUtils";
 
 // Parameters interface for Supplier Invoice
 export interface SupplierInvoiceParams {
@@ -57,13 +57,7 @@ export async function SupplierInvoiceCreation(page: Page, poNumber: string, amou
         await page.keyboard.type(poNumber);
     }
     await page.keyboard.press('Enter');
-
-
-    // await page.waitForTimeout(500);  // Wait for SAP to load PO details
-    // await page.keyboard.press('Enter');
-    // await page.waitForTimeout(500);  // Wait for SAP to load PO details
-    // await page.keyboard.press('Enter');
-    await page.waitForTimeout(1500);  // Wait for SAP to load PO details
+    await page.waitForTimeout(1500);
 
     // Check if Supplier Invoice has already been created (Balance = 0)
     try {

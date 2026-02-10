@@ -1,6 +1,6 @@
 import { Page } from "@playwright/test";
-import { openFioriApp } from "../utils/Searching";
-import { fillTextboxInSapFrame, getSapToday } from "../utils/sapUtils";
+import { openFioriApp } from "../../utils/Searching";
+import { fillTextboxInSapFrame, getSapToday } from "../../utils/sapUtils";
 
 // PO Parameters interface for bulk creation
 export interface POParameters {
@@ -154,16 +154,31 @@ export async function BulkPurchaseOrderCreation(page: Page, params?: POParameter
     }
 
     console.log('Step 7: Filling Purch. Org...');
-    await fillTextboxInSapFrame(app, "Purch. Org.", p.purchaseOrg!);
+    const purchOrgField = app.getByRole('textbox', { name: 'Purch. Org.', exact: true });
+    await purchOrgField.waitFor({ state: 'visible', timeout: 30000 });
+    await purchOrgField.click();
+    await page.keyboard.press('Control+A');
+    await page.keyboard.type(p.purchaseOrg!);
     await page.keyboard.press('Enter');
+    await page.waitForTimeout(500);
 
     console.log('Step 7: Filling Purch. Group...');
-    await fillTextboxInSapFrame(app, "Purch. Group", p.purchaseGroup!);
+    const purchGroupField = app.getByRole('textbox', { name: 'Purch. Group', exact: true });
+    await purchGroupField.waitFor({ state: 'visible', timeout: 30000 });
+    await purchGroupField.click();
+    await page.keyboard.press('Control+A');
+    await page.keyboard.type(p.purchaseGroup!);
     await page.keyboard.press('Enter');
+    await page.waitForTimeout(500);
 
     console.log('Step 7: Filling Company Code in header...');
-    await fillTextboxInSapFrame(app, "Company Code", p.companyCode!);
+    const compCodeField = app.getByRole('textbox', { name: 'Company Code', exact: true });
+    await compCodeField.waitFor({ state: 'visible', timeout: 30000 });
+    await compCodeField.click();
+    await page.keyboard.press('Control+A');
+    await page.keyboard.type(p.companyCode!);
     await page.keyboard.press('Enter');
+    await page.waitForTimeout(500);
     console.log('Step 7: Header Org Data filled');
 
     console.log('Step 8: Closing header part (Ctrl+F5)...');
@@ -174,15 +189,24 @@ export async function BulkPurchaseOrderCreation(page: Page, params?: POParameter
     await page.keyboard.press('Control+F3'); // to open the item overview
     await page.waitForTimeout(300);
 
-    // Account Assignment (A column) = K or provided value
-    console.log('Step 10: Filling item data - Account Assignment:', p.accountAssignment);
-    const acol = app.getByRole('textbox', { name: 'A' }).nth(2);
-    await acol.click();
-    await page.keyboard.type(p.accountAssignment!);
-
-    // Material (with fallback for SAP span elements)
+    // Material first (reliable selector), then navigate back to fill Account Assignment
     console.log('Step 10: Filling Material:', p.material);
     const materialcol = app.getByRole('textbox', { name: 'Material' }).first();
+    await materialcol.waitFor({ state: 'visible', timeout: 10000 });
+    await materialcol.click();
+    await page.waitForTimeout(300);
+
+    // Navigate back to A (Account Assignment) column via Shift+Tab (2 times)
+    console.log('Step 10: Filling Account Assignment:', p.accountAssignment);
+    await page.keyboard.press('Shift+Tab');
+    await page.keyboard.press('Shift+Tab');
+    await page.waitForTimeout(300);
+    await page.keyboard.type(p.accountAssignment!);
+
+    // Tab forward back to Material and fill it
+    await page.keyboard.press('Tab');
+    await page.keyboard.press('Tab');
+    await page.waitForTimeout(300);
     try {
         await materialcol.focus();
         await materialcol.fill(p.material!);
@@ -255,14 +279,22 @@ export async function BulkPurchaseOrderCreation(page: Page, params?: POParameter
     await page.keyboard.press('Enter');
     console.log('Step 10: Item overview data filled');
 
+    // Wait for SAP to process item data before switching tabs
+    await page.waitForTimeout(2000);
+
     // in the item overview (with retry for tab click)
     console.log('Step 11: Clicking Account Assignment tab...');
     try {
-        await app.getByRole('tab', { name: 'Account Assignment', exact: true }).click();
-    } catch {
+        const accTab = app.getByRole('tab', { name: 'Account Assignment', exact: true });
+        await accTab.waitFor({ state: 'visible', timeout: 10000 });
+        await accTab.click();
+        console.log('Step 11: Account Assignment tab clicked');
+    } catch (error: any) {
+        console.log('Step 11: First attempt failed:', error.message);
         // Retry after a short wait
         await page.waitForTimeout(1000);
         await app.getByRole('tab', { name: 'Account Assignment', exact: true }).click();
+        console.log('Step 11: Account Assignment tab clicked (retry)');
     }
 
     // G/L account in item detail
@@ -358,7 +390,11 @@ export async function BulkPurchaseOrderCreation(page: Page, params?: POParameter
     await saveDialogBtn.click();
     console.log('Step 19: Save dialog button clicked');
 
-    await page.waitForTimeout(500);
+    // Wait for success message to confirm PO is saved
+    console.log('Step 20: Waiting for PO creation success message...');
+    const successMsg = app.locator('text=/Standard PO created under the number \\d+/').first();
+    await successMsg.waitFor({ state: 'visible', timeout: 30000 });
+    console.log('Step 20: Success message visible - PO saved successfully');
 
     // clicking on other Purchase Order button to get the PO number
     console.log('Step 20: Clicking Other Purchase Order button...');

@@ -1,6 +1,7 @@
 import { test } from '@playwright/test';
-import { Login } from '../Login';
-import { BulkPurchaseOrderCreation, POParameters } from '../BulkPurchaseOrder';
+import { Login } from '../helpers/Login';
+import { BulkPurchaseOrderCreation, POParameters } from '../helpers/BulkPurchaseOrder';
+import { Logout } from '../helpers/Logout';
 import { readBulkPOCSV } from '../../utils/csvHelper';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -11,6 +12,11 @@ import * as path from 'path';
  * Creates all POs in a single browser session (more efficient)
  */
 
+// Ensure SAP session is closed even if test fails
+test.afterEach(async ({ page }) => {
+    try { await Logout(page); } catch { console.log('Logout skipped (session may already be closed)'); }
+});
+
 test('Create Bulk Purchase Orders from CSV', async ({ page }) => {
     // Get CSV path from environment variable or use default from frontend public folder
     let csvPath = process.env.BULK_CSV_PATH;
@@ -18,7 +24,7 @@ test('Create Bulk Purchase Orders from CSV', async ({ page }) => {
     if (!csvPath) {
         console.log('No BULK_CSV_PATH provided, using default test file from frontend/public');
         // Use the test file from frontend public folder
-        const defaultPath = path.join(__dirname, '../../frontend/public/sample-bulk-po.csv');
+        const defaultPath = path.join(__dirname, '../../frontend/public/sample-bulk-po.json');
         if (fs.existsSync(defaultPath)) {
             csvPath = defaultPath;
         } else {
