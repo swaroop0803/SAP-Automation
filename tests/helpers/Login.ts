@@ -39,7 +39,7 @@ import { expect, Page } from '@playwright/test';
 
 export async function Login(page: Page) {
   await page.goto(
-    'https://kps4hana:44304/sap/bc/ui2/flp?sap-client=001&sap-language=EN',
+    'https://rdp.plarkitsolutions.com:44304/sap/bc/ui2/flp?sap-client=001&sap-language=EN#AllowanceRequest-manage?sap-keep-alive=true&/?sap-iapp-state--history=TASJD843OXX0GGH32L27FLXJAN6C5V1ZZFG439KWD&sap-iapp-state=ASC9QEBURFVUADV6LMZRUMVK8MX0ZVQFQM0WWI3G',
     { waitUntil: 'domcontentloaded' }
   );
 
@@ -50,7 +50,6 @@ export async function Login(page: Page) {
 
   // Language
   await page.selectOption('#LANGUAGE_SELECT', 'EN');
-
   // Login
   await page.locator('#LOGIN_LINK').click();
 

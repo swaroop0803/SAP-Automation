@@ -65,6 +65,11 @@ test('Create Supplier Invoice for existing PO', async ({ page }) => {
     const invoiceDocNumber = await SupplierInvoiceCreation(page, poNumber, amount);
     console.log('Supplier Invoice Created:', invoiceDocNumber);
 
+    // Highlight document numbers in report
+    await test.step(`✅ Supplier Invoice Created: ${invoiceDocNumber} (PO: ${poNumber})`, async () => {});
+    test.info().annotations.push({ type: 'Invoice Number', description: invoiceDocNumber });
+    test.info().annotations.push({ type: 'PO Number', description: poNumber });
+
     // Step 3: Save Invoice Number to invoiceno.csv for payment reference
     const invoiceCsvPath = path.join(__dirname, '../../utils/invoiceno.csv');
     const timestamp = new Date().toISOString();

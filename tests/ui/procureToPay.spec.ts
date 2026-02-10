@@ -43,6 +43,8 @@ test('Complete Procure-to-Pay Flow', async ({ page }) => {
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     const poNumber = await Purchaseordercreation(page, { material, quantity, price });
     console.log(`✅ STEP 2 COMPLETE: Purchase Order Created → PO Number: ${poNumber}\n`);
+    await test.step(`✅ Purchase Order Created: ${poNumber}`, async () => {});
+    test.info().annotations.push({ type: 'PO Number', description: poNumber });
 
     // Step 3: Save PO Details to poDetails.csv for tracking
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -69,6 +71,8 @@ test('Complete Procure-to-Pay Flow', async ({ page }) => {
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     const materialDocNumber = await GoodsReceiptCreation(page, poNumber);
     console.log(`✅ STEP 4 COMPLETE: Goods Receipt Created → Material Doc: ${materialDocNumber || 'N/A'}\n`);
+    await test.step(`✅ Goods Receipt Created: ${materialDocNumber || 'N/A'}`, async () => {});
+    test.info().annotations.push({ type: 'Material Doc', description: materialDocNumber || 'N/A' });
 
     // Step 5: Calculate Invoice Amount = Price × Quantity
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -86,6 +90,8 @@ test('Complete Procure-to-Pay Flow', async ({ page }) => {
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     const invoiceDocNumber = await SupplierInvoiceCreation(page, poNumber, invoiceAmount);
     console.log(`✅ STEP 6 COMPLETE: Supplier Invoice Created → Invoice: ${invoiceDocNumber}\n`);
+    await test.step(`✅ Supplier Invoice Created: ${invoiceDocNumber}`, async () => {});
+    test.info().annotations.push({ type: 'Invoice Number', description: invoiceDocNumber });
 
     // Step 7: Process Payment → uses Invoice Number
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');

@@ -30,6 +30,10 @@ test('Create Goods Receipt for existing PO', async ({ page }) => {
     await GoodsReceiptCreation(page, poNumber);
     console.log('Goods Receipt Created for PO:', poNumber);
 
+    // Highlight PO Number in report
+    await test.step(`✅ Goods Receipt Created for PO: ${poNumber}`, async () => {});
+    test.info().annotations.push({ type: 'PO Number', description: poNumber });
+
     // Step 3: Append PO to pOnumbergoods.csv after successful Goods Receipt
     const csvPath = path.join(__dirname, '../../utils/pOnumbergoods.csv');
     const timestamp = new Date().toISOString();

@@ -27,6 +27,10 @@ test('Create Purchase Order and Save PO Number', async ({ page }) => {
     const poNumber = await Purchaseordercreation(page, { material, quantity, price });
     console.log('Purchase Order Created:', poNumber);
 
+    // Highlight PO Number in report
+    await test.step(`✅ Purchase Order Created: ${poNumber}`, async () => {});
+    test.info().annotations.push({ type: 'PO Number', description: poNumber });
+
     // Step 3: Save PO Number to CSV
     const csvPath = path.join(__dirname, '../../utils/purchaseorderno.csv');
     const timestamp = new Date().toISOString();
